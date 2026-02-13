@@ -1,0 +1,67 @@
+# =============================================================================
+# DEVELOPMENT ONLY - DO NOT USE IN PRODUCTION
+# =============================================================================
+# This manifest is for local development and testing only.
+# It uses DEBUG=true, emptyDir volumes, and is not suitable for production.
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: unified-inventory-service
+  labels:
+    app: unified-inventory-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: unified-inventory-service
+  template:
+    metadata:
+      labels:
+        app: unified-inventory-service
+    spec:
+      containers:
+        - name: unified-inventory-service
+          image: localhost:5001/unified-inventory-service:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          env:
+            - name: UNIFIED_INVENTORY_SERVICE_ALLOWED_HOSTS
+              value: '["*"]'
+            - name: UNIFIED_INVENTORY_SERVICE_DEBUG
+              value: "true"
+            - name: UNIFIED_INVENTORY_SERVICE_DATABASES__default__NAME
+              value: "/app/data/db.sqlite3"
+          volumeMounts:
+            - name: sqlite-data
+              mountPath: /app/data
+          readinessProbe:
+            httpGet:
+              path: /ping/
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /ping/
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      volumes:
+        - name: sqlite-data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: unified-inventory-service
+spec:
+  selector:
+    app: unified-inventory-service
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
+  type: ClusterIP
