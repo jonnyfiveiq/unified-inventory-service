@@ -4,6 +4,6 @@ _src_path: https://github.com/ansible/platform-service-framework.git
 app_name: core
 apps:
 - api
-project_name: unified_inventory_service
+project_name: inventory_service
 src_branch: main
 template: templates/core

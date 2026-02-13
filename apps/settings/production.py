@@ -1,7 +1,7 @@
 """
 Production environment settings.
 
-This file is loaded when UNIFIED_INVENTORY_SERVICE_MODE=production and serves three purposes:
+This file is loaded when INVENTORY_SERVICE_MODE=production and serves three purposes:
 
 1. ZERO OUT SENSITIVE INFORMATION
    All sensitive settings (passwords, keys, secrets) are explicitly set to empty
@@ -23,13 +23,13 @@ This file is loaded when UNIFIED_INVENTORY_SERVICE_MODE=production and serves th
    deployments from running.
 
 Usage:
-   export UNIFIED_INVENTORY_SERVICE_MODE=production
-   export UNIFIED_INVENTORY_SERVICE_SECRET_KEY=your-secret-key
-   export UNIFIED_INVENTORY_SERVICE_DATABASES__default__PASSWORD=your-db-password
+   export INVENTORY_SERVICE_MODE=production
+   export INVENTORY_SERVICE_SECRET_KEY=your-secret-key
+   export INVENTORY_SERVICE_DATABASES__default__PASSWORD=your-db-password
    # ... set all other required environment variables
    python manage.py runserver
 
-Validators are registered in unified_inventory_service/settings.py and run during export().
+Validators are registered in inventory_service/settings.py and run during export().
 """
 
 from dynaconf import Validator

@@ -9,7 +9,7 @@ ALLOW_SHARED_RESOURCE_CUSTOM_ROLES = False
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:8000",
     "http://127.0.0.1:8000",
-    "https://unified_inventory_service:8000",
+    "https://inventory_service:8000",
 ]
 """CSRF settings to allow origins to make requests, NOTE: Only use in development!"""
 
@@ -24,7 +24,7 @@ EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 """Email backend for development (console output)"""
 
 LOGGING__loggers__django__level = "DEBUG"
-LOGGING__loggers__unified_inventory_service__level = "DEBUG"
+LOGGING__loggers__inventory_service__level = "DEBUG"
 LOGGING__loggers__ansible_base__level = "DEBUG"
 LOGGING__loggers = {
     "dynaconf_merge": True,

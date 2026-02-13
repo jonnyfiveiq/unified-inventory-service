@@ -1,0 +1,24 @@
+import logging
+
+from django.apps import AppConfig
+
+logger = logging.getLogger("apps.inventory")
+
+
+class InventoryConfig(AppConfig):
+    default_auto_field = "django.db.models.BigAutoField"
+    name = "apps.inventory"
+    label = "inventory"
+    verbose_name = "Unified Inventory"
+
+    def ready(self):
+        # Configure dispatcherd so that both the web process (publisher)
+        # and the worker process use the same pg_notify settings.
+        # Import is deferred to avoid loading models before the app registry
+        # is fully populated.
+        try:
+            from apps.inventory.dispatcher import setup_dispatcher
+
+            setup_dispatcher()
+        except Exception:
+            logger.debug("dispatcherd setup deferred — database may not be available yet")

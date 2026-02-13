@@ -1,1 +1,1 @@
-# unified_inventory_service managed by Framework
+# inventory_service managed by Framework

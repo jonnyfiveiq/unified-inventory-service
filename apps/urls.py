@@ -9,7 +9,7 @@ URLs. Use this for:
 - Cross-app endpoints combining functionality from multiple apps
 
 This file loads at step 3 in the URL loading order, before individual apps
-(step 4). For full documentation, see: unified_inventory_service/urls.py
+(step 4). For full documentation, see: inventory_service/urls.py
 
 ## Example
 

@@ -17,6 +17,8 @@ ANSIBLE_BASE_RBAC_MODEL_REGISTRY = {
     "core.Organization": {"parent_field_name": None},
     "core.Team": {"parent_field_name": "organization"},
     "core.User": {"parent_field_name": None},
+    "inventory.Provider": {"parent_field_name": "organization"},
+    "inventory.Resource": {"parent_field_name": "organization"},
 }
 
 # Authentication - insert JWT auth at position 0

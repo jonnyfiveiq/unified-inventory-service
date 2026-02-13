@@ -8,31 +8,31 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: unified-inventory-service
+  name: inventory-service
   labels:
-    app: unified-inventory-service
+    app: inventory-service
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: unified-inventory-service
+      app: inventory-service
   template:
     metadata:
       labels:
-        app: unified-inventory-service
+        app: inventory-service
     spec:
       containers:
-        - name: unified-inventory-service
-          image: localhost:5001/unified-inventory-service:latest
+        - name: inventory-service
+          image: localhost:5001/inventory-service:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8000
           env:
-            - name: UNIFIED_INVENTORY_SERVICE_ALLOWED_HOSTS
+            - name: INVENTORY_SERVICE_ALLOWED_HOSTS
               value: '["*"]'
-            - name: UNIFIED_INVENTORY_SERVICE_DEBUG
+            - name: INVENTORY_SERVICE_DEBUG
               value: "true"
-            - name: UNIFIED_INVENTORY_SERVICE_DATABASES__default__NAME
+            - name: INVENTORY_SERVICE_DATABASES__default__NAME
               value: "/app/data/db.sqlite3"
           volumeMounts:
             - name: sqlite-data
@@ -56,10 +56,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: unified-inventory-service
+  name: inventory-service
 spec:
   selector:
-    app: unified-inventory-service
+    app: inventory-service
   ports:
     - protocol: TCP
       port: 80

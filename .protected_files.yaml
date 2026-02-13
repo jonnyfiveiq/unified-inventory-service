@@ -3,7 +3,7 @@
 # in repositories using the template
 
 protected_files:
-  - unified_inventory_service/
+  - inventory_service/
   - .github/workflows/framework-validation.yml
   - .github/workflows/framework-update.yml
   - .github/rulesets/branch-protection.json

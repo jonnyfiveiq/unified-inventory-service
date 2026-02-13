@@ -1,5 +1,5 @@
 [project]
-name = "unified_inventory_service"
+name = "inventory_service"
 version = "0.1.0"
 description = "description here"
 readme = "README.md"
@@ -8,6 +8,8 @@ dependencies = [
     "django>=5.2.7",
     "psycopg[binary]>=3.3.1",
     "django-ansible-base[rest_filters,jwt_consumer,resource_registry,rbac,feature_flags,api_documentation]",
+    "dispatcherd[pg_notify] @ git+https://github.com/ansible/dispatcherd",
+    "django-filter>=25.1",
 ]
 
 [dependency-groups]
@@ -72,8 +74,8 @@ possibly-missing-implicit-call = "ignore"
 [tool.pytest.ini_options]
 minversion = "6.0"
 addopts = "-vs -ra -q"
-testpaths = ["unified_inventory_service/tests", "apps/**/tests"]
-DJANGO_SETTINGS_MODULE = "unified_inventory_service.settings"
+testpaths = ["inventory_service/tests", "apps/**/tests"]
+DJANGO_SETTINGS_MODULE = "inventory_service.settings"
 
 [tool.poe]
 executor.type  = "uv"
@@ -84,8 +86,8 @@ type_check = "ty check"
 format = "ruff format ."
 unit-test = "manage.py test -v 2"
 check = ["format", "lint", "unit-test"]
-render-docs = "pdoc -t docs/templates --mermaid --docformat markdown --docformat google unified_inventory_service apps -o html"
-serve-docs = "pdoc -t docs/templates --mermaid --docformat markdown --docformat google unified_inventory_service apps"
+render-docs = "pdoc -t docs/templates --mermaid --docformat markdown --docformat google inventory_service apps -o html"
+serve-docs = "pdoc -t docs/templates --mermaid --docformat markdown --docformat google inventory_service apps"
 
 [tool.poe.tasks.clean]
 help = "Clean local caches for mypy, pytest, python"
@@ -132,8 +134,9 @@ with open('.copier-answers.yml') as f:
 
 [tool.uv.sources]
 django-ansible-base = { git = "https://github.com/ansible/django-ansible-base", rev = "devel" }
+dispatcherd = { git = "https://github.com/ansible/dispatcherd" }
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["unified_inventory_service*", "apps*"]
+include = ["inventory_service*", "apps*"]
 exclude = ["tests*"]

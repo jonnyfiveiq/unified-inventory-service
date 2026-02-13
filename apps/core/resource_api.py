@@ -15,7 +15,7 @@ from apps.core.models import Organization, Team, User
 class APIConfig(ServiceAPIConfig):
     """API configuration for the resource registry."""
 
-    service_type = "unified_inventory_service"
+    service_type = "inventory_service"
 
 
 RESOURCE_LIST = [

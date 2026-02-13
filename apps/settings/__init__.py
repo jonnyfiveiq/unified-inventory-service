@@ -5,17 +5,17 @@ the following places:
 
 Read Only (overridable)
 
-- `unified_inventory_service/settings.py` - Framework defaults
+- `inventory_service/settings.py` - Framework defaults
 
 Editable:
 
 - `apps/settings/defaults.py` - Defaults for the whole project
 - `apps/core/settings.py` - Core settings, DAB related settings
 - `apps/*/settings.py` - Each app settings in the loading order
-- `apps/settings/{mode}.py` - Settings specific to the current `UNIFIED_INVENTORY_SERVICE_MODE`
+- `apps/settings/{mode}.py` - Settings specific to the current `INVENTORY_SERVICE_MODE`
 - `settings.local.py` - For local settings (git ignored)
-- `/etc/ansible-automation-platoform/unified_inventory_service/settings.yaml` - for prod environment overrides
-- `UNIFIED_INVENTORY_SERVICE_` prefixed environment variables
+- `/etc/ansible-automation-platoform/inventory_service/settings.yaml` - for prod environment overrides
+- `INVENTORY_SERVICE_` prefixed environment variables
 
 Declaring Settings:
 

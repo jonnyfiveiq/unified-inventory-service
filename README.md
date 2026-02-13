@@ -1,26 +1,78 @@
-# Unified Inventory Service
+# Inventory Service
 
 A Django service for the Ansible Automation Platform (AAP), built on the
 [ansible-services-framework](https://github.com/ansible/ansible-services-framework) (copier template)
 and [django-ansible-base](https://github.com/ansible/django-ansible-base) (DAB).
 
-Provides a foundation for unified inventory management within AAP, with RBAC,
-activity streams, feature flags, and gateway authentication out of the box.
+Provides unified inventory management for AAP — discovering, cataloguing and
+tracking infrastructure resources across VMware vSphere, public cloud and
+bare-metal providers. Includes RBAC, activity streams, feature flags and
+gateway authentication out of the box.
 
-## API Endpoints
+## Inventory API
 
-Once deployed, the service exposes the following at `/api/unified-inventory/v1/`:
+Once deployed behind the AAP gateway the inventory endpoints are available at
+`/api/inventory/v1/`:
 
-- `/activitystream/` — Activity stream
-- `/docs/` — API documentation
-- `/feature_flags/` — Feature flag management
-- `/organizations/` — Organization management
-- `/role_definitions/` — RBAC role definitions
-- `/teams/` — Team management
-- `/users/` — User management
-- `/service-index/` — Service index
+| Endpoint | Description |
+|---|---|
+| `/providers/` | Infrastructure providers (VMware vCenter, AWS, Azure…) |
+| `/providers/{id}/collect/` | Trigger a collection run for a provider |
+| `/collection-runs/` | Collection run status and history |
+| `/resources/` | Discovered resources (VMs, hosts, datastores…) |
+| `/resource-relationships/` | Relationships between resources (runs_on, attached_to…) |
+| `/resource-categories/` | Taxonomy — top-level resource categories |
+| `/resource-types/` | Taxonomy — resource types within each category |
+| `/vendor-type-mappings/` | Taxonomy — maps vendor-specific types to canonical types |
 
-## Local Development
+### Filtering and search
+
+Resources support filtering and full-text search:
+
+```
+GET /api/inventory/v1/resources/?state=running
+GET /api/inventory/v1/resources/?search=esxi
+GET /api/inventory/v1/resources/?provider__id=<uuid>
+GET /api/inventory/v1/resources/?os_type=linux
+GET /api/inventory/v1/resources/?region=Lab-DC1
+```
+
+Providers support filtering by vendor:
+
+```
+GET /api/inventory/v1/providers/?vendor=vmware
+```
+
+### Platform endpoints (via django-ansible-base)
+
+| Endpoint | Description |
+|---|---|
+| `/organizations/` | Organization management |
+| `/users/` | User management |
+| `/teams/` | Team management |
+| `/role_definitions/` | RBAC role definitions |
+| `/activitystream/` | Activity stream |
+| `/feature_flags/` | Feature flag management |
+| `/service-index/` | Service index |
+| `/docs/` | API documentation |
+
+## Data model
+
+```
+Provider
+ └── CollectionRun          (one provider → many runs)
+ └── Resource               (one provider → many resources)
+      ├── resource_type → ResourceType → ResourceCategory
+      └── ResourceRelationship (source → target)
+              types: runs_on, attached_to, member_of, part_of, manages
+
+ResourceType ← VendorTypeMapping (maps vendor-specific names → canonical types)
+```
+
+The taxonomy (categories, types and vendor mappings) is seeded by migration and
+covers 15 categories, 82 resource types and 20+ VMware vSphere mappings.
+
+## Local development
 
 ### Prerequisites
 
@@ -34,29 +86,60 @@ uv venv
 source .venv/bin/activate
 uv pip install -e '.[dev]'
 
-# Configure local settings
 cp settings.local.py.example settings.local.py
-
-# Run migrations
 python manage.py migrate
-
-# Create superuser
 python manage.py createsuperuser
-
-# Run the dev server
 python manage.py runserver
 ```
+
+### Seed VMware sample data
+
+The `seed_vmware_data` management command populates a realistic vSphere lab
+environment for development and testing:
+
+- 1 vCenter provider (`vcsa01.lab.local`)
+- 1 datacenter with 2 clusters (Prod + Dev)
+- 4 ESXi hosts with real hardware specs
+- 4 datastores (vSAN, NFS, FC/VMFS)
+- 2 resource pools (Production, Staging)
+- 14 VMs — AAP stack, RHEL web/db servers, Windows AD/IIS, dev boxes, templates
+- Full relationship graph (runs_on, attached_to, member_of, part_of)
+
+```bash
+python manage.py seed_vmware_data          # seed
+python manage.py seed_vmware_data --flush  # flush and re-seed
+```
+
+When deployed in aap-dev:
+
+```bash
+kubectl exec -it deploy/inventory-service -n aap26 -- \
+  uv run --no-sync python manage.py seed_vmware_data
+```
+
+### Run the API test suite
+
+`test_api.sh` exercises all API endpoints end-to-end (21 tests):
+
+```bash
+./test_api.sh                         # auto-detects password from aap-dev cluster
+./test_api.sh -H localhost:8080       # custom host
+./test_api.sh -u myuser -p mypass     # custom credentials
+```
+
+Tests cover: connectivity, taxonomy endpoints, provider CRUD, collection run
+lifecycle, resource listing, filtered queries, and cleanup.
 
 ## Deploying with aap-dev
 
 This service integrates with [aap-dev](https://github.com/ansible/aap-dev) as a
-skaffold addon. The following scaffolding changes are required in the aap-dev repo.
+skaffold addon.
 
 ### 1. Clone the service source
 
 ```bash
 cd aap-dev/src/
-git clone https://github.com/jonnyfiveiq/unified-inventory-service.git
+git clone https://github.com/jonnyfiveiq/unified-inventory-service.git inventory-service
 ```
 
 ### 2. Create Kubernetes manifests
@@ -64,7 +147,7 @@ git clone https://github.com/jonnyfiveiq/unified-inventory-service.git
 Create the directory structure:
 
 ```
-manifests/base/apps/unified-inventory-service/
+manifests/base/apps/inventory-service/
 ├── kustomization.yaml
 └── k8s/
     ├── configmap.yaml
@@ -75,459 +158,34 @@ manifests/base/apps/unified-inventory-service/
     └── services.yaml
 ```
 
-#### `manifests/base/apps/unified-inventory-service/kustomization.yaml`
+See the [aap-dev deployment docs](https://github.com/ansible/aap-dev) for
+the full manifest content. Key configuration points:
 
-```yaml
----
-resources:
-  - k8s/deployments.yaml
-  - k8s/services.yaml
-  - k8s/register-job.yaml
-  - k8s/configmap.yaml
-  - k8s/secrets.yaml
-  - k8s/database.yaml
+- **Gateway API slug**: `inventory` — external path is `/api/inventory/v1/`
+- **Internal service name**: `inventory-service` (K8s service, deployment, DNS)
+- **Database**: Dedicated PostgreSQL 15 instance (`inventory_db`)
+
+### 3. Create the skaffold addon
+
+```
+skaffolding/addons/inventory-service/skaffold.yaml
 ```
 
-#### `manifests/base/apps/unified-inventory-service/k8s/deployments.yaml`
-
-```yaml
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: unified-inventory-service
-  labels:
-    app: unified-inventory-service
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: unified-inventory-service
-  template:
-    metadata:
-      labels:
-        app: unified-inventory-service
-    spec:
-      containers:
-        - name: unified-inventory-service
-          image: __UNIFIED_INVENTORY_SERVICE_IMAGE__
-          imagePullPolicy: Always
-          ports:
-            - containerPort: 8000
-          env:
-            - name: UNIFIED_INVENTORY_SERVICE_DATABASES__default__ENGINE
-              value: django.db.backends.postgresql
-            - name: UNIFIED_INVENTORY_SERVICE_DATABASES__default__HOST
-              valueFrom:
-                secretKeyRef:
-                  key: host
-                  name: unified-inventory-service-postgres-configuration
-            - name: UNIFIED_INVENTORY_SERVICE_DATABASES__default__NAME
-              valueFrom:
-                secretKeyRef:
-                  key: database
-                  name: unified-inventory-service-postgres-configuration
-            - name: UNIFIED_INVENTORY_SERVICE_DATABASES__default__PORT
-              valueFrom:
-                secretKeyRef:
-                  key: port
-                  name: unified-inventory-service-postgres-configuration
-            - name: UNIFIED_INVENTORY_SERVICE_DATABASES__default__USER
-              valueFrom:
-                secretKeyRef:
-                  key: username
-                  name: unified-inventory-service-postgres-configuration
-            - name: UNIFIED_INVENTORY_SERVICE_DATABASES__default__PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  key: password
-                  name: unified-inventory-service-postgres-configuration
-            - name: UNIFIED_INVENTORY_SERVICE_ALLOWED_HOSTS
-              value: '["localhost","127.0.0.1","0.0.0.0","unified-inventory-service"]'
-            - name: UNIFIED_INVENTORY_SERVICE_AAP_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: myaap-admin-password
-                  key: password
-```
-
-#### `manifests/base/apps/unified-inventory-service/k8s/services.yaml`
-
-```yaml
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: unified-inventory-service
-  labels:
-    app: unified-inventory-service
-spec:
-  selector:
-    app: unified-inventory-service
-  ports:
-    - port: 8000
-      targetPort: 8000
-      name: http
----
-apiVersion: v1
-kind: Service
-metadata:
-  labels:
-    app.kubernetes.io/component: database
-    app.kubernetes.io/instance: postgres-15-unified-inventory-service
-    app.kubernetes.io/name: postgres-15
-  name: unified-inventory-service-postgres-15
-spec:
-  internalTrafficPolicy: Cluster
-  ipFamilies:
-    - IPv4
-  ipFamilyPolicy: SingleStack
-  ports:
-    - name: "5432"
-      port: 5432
-  selector:
-    app.kubernetes.io/component: database
-    app.kubernetes.io/instance: postgres-15-unified-inventory-service
-    app.kubernetes.io/name: postgres-15
-```
-
-#### `manifests/base/apps/unified-inventory-service/k8s/secrets.yaml`
-
-```yaml
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: unified-inventory-service-postgres-configuration
-type: Opaque
-stringData:
-  database: unified_inventory_db
-  host: unified-inventory-service-postgres-15
-  password: helloSvcDevPass123456789abcdef # notsecret
-  port: "5432"
-  postgres_admin_password: helloSvcAdminPass987654321xyz # notsecret
-  type: managed
-  username: unified_inventory
-```
-
-#### `manifests/base/apps/unified-inventory-service/k8s/configmap.yaml`
-
-```yaml
----
-apiVersion: v1
-data:
-  init_component_dbs.sh: |
-    db_exists=$(psql -tAc "SELECT 1 FROM pg_database WHERE datname='unified_inventory_db'")
-    user_exists=$(psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='unified_inventory'")
-    if [ -z "$user_exists" ]; then
-        psql -c "CREATE USER unified_inventory WITH ENCRYPTED PASSWORD 'helloSvcDevPass123456789abcdef';"
-        psql -c "GRANT USAGE, CREATE ON SCHEMA public TO unified_inventory"
-    fi
-    if [ -z "$db_exists" ]; then
-        psql -c "CREATE DATABASE unified_inventory_db WITH OWNER unified_inventory;"
-    fi
-kind: ConfigMap
-metadata:
-  labels:
-    app.kubernetes.io/component: database
-    app.kubernetes.io/instance: postgres-15-unified-inventory-service
-    app.kubernetes.io/name: postgres-15
-  name: unified-inventory-service-postgresql-init
-```
-
-#### `manifests/base/apps/unified-inventory-service/k8s/database.yaml`
-
-```yaml
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  labels:
-    app.kubernetes.io/component: database
-    app.kubernetes.io/instance: postgres-15-unified-inventory-service
-    app.kubernetes.io/name: postgres-15
-    app.kubernetes.io/part-of: unified-inventory-service
-  name: unified-inventory-service-postgres-15
-spec:
-  persistentVolumeClaimRetentionPolicy:
-    whenDeleted: Retain
-    whenScaled: Retain
-  podManagementPolicy: OrderedReady
-  replicas: 1
-  revisionHistoryLimit: 10
-  selector:
-    matchLabels:
-      app.kubernetes.io/component: database
-      app.kubernetes.io/instance: postgres-15-unified-inventory-service
-      app.kubernetes.io/name: postgres-15
-  serviceName: unified-inventory-service
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/component: database
-        app.kubernetes.io/instance: postgres-15-unified-inventory-service
-        app.kubernetes.io/name: postgres-15
-        app.kubernetes.io/part-of: unified-inventory-service
-    spec:
-      containers:
-        - env:
-            - name: POSTGRESQL_ADMIN_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  key: postgres_admin_password
-                  name: unified-inventory-service-postgres-configuration
-            - name: POSTGRESQL_MAX_CONNECTIONS
-              value: "1024"
-            - name: POSTGRESQL_LOG_DESTINATION
-              value: /dev/stderr
-          image: localhost:5001/aap26/postgresql-15
-          imagePullPolicy: IfNotPresent
-          livenessProbe:
-            exec:
-              command:
-                - bash
-                - -c
-                - pg_isready -p 5432 -d postgres
-            failureThreshold: 3
-            initialDelaySeconds: 45
-            periodSeconds: 10
-            successThreshold: 1
-            timeoutSeconds: 2
-          name: postgres
-          ports:
-            - containerPort: 5432
-              name: postgres-15
-              protocol: TCP
-          resources:
-            requests: {}
-          volumeMounts:
-            - mountPath: /var/lib/pgsql/data
-              name: postgres-data
-              subPath: data
-            - mountPath: /opt/app-root/src/postgresql-start
-              name: postgresql-init
-      restartPolicy: Always
-      terminationGracePeriodSeconds: 30
-      volumes:
-        - configMap:
-            defaultMode: 420
-            name: unified-inventory-service-postgresql-init
-          name: postgresql-init
-  updateStrategy:
-    type: RollingUpdate
-  volumeClaimTemplates:
-    - apiVersion: v1
-      kind: PersistentVolumeClaim
-      metadata:
-        name: postgres-data
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 8Gi
-        volumeMode: Filesystem
-```
-
-#### `manifests/base/apps/unified-inventory-service/k8s/register-job.yaml`
-
-This job registers the service with the AAP gateway. Note: the `api_slug` must be
-≤20 characters (gateway constraint), so we use `unified-inventory` as the slug
-while keeping the full service name everywhere else.
-
-```yaml
----
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: register-unified-inventory-service
-spec:
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: register-unified-inventory-service
-    spec:
-      restartPolicy: Never
-      containers:
-        - name: register-unified-inventory-service
-          image: __EE_SUPPORTED_IMAGE__
-          imagePullPolicy: IfNotPresent
-          command: [bash, -c]
-          args:
-            - |
-              set -e
-              cat <<'EOF' > /tmp/playbook.yaml
-              ---
-              - name: Playbook to register unified inventory service
-                hosts: localhost
-                connection: local
-                vars:
-                  gateway_username: "{{ gateway_admin_username }}"
-                  gateway_password: "{{ gateway_admin_password }}"
-                  gateway_hostname: "{{ gateway_host }}"
-                  gateway_validate_certs: False
-                  gateway_state: present
-                module_defaults:
-                  group/ansible.platform.gateway:
-                    gateway_username: "{{ gateway_username }}"
-                    gateway_password: "{{ gateway_password }}"
-                    gateway_hostname: "{{ gateway_hostname }}"
-                    gateway_validate_certs: "{{ gateway_validate_certs }}"
-                    state: "{{ gateway_state }}"
-                tasks:
-                  - name: Check if API is available and returning status 200
-                    uri:
-                      url: "{{ gateway_hostname }}/api/gateway/v1/me/"
-                      validate_certs: "{{ gateway_validate_certs }}"
-                      method: GET
-                      user: "{{ gateway_username }}"
-                      password: "{{ gateway_password }}"
-                      force_basic_auth: true
-                    register: result
-                    until: result.status == 200
-                    retries: 60
-                    delay: 15
-
-                  - name: Manage service_type for unified inventory service
-                    ansible.platform.service_type:
-                      name: "unified-inventory-service"
-                      ping_url: "/ping/"
-                      service_index_path: "/api/unified-inventory-service/"
-
-                  - name: Manage service_cluster for unified inventory service
-                    ansible.platform.service_cluster:
-                      name: "unified-inventory-service"
-                      service_type: "unified-inventory-service"
-
-                  - name: Manage service_node for unified inventory service
-                    ansible.platform.service_node:
-                      name: "Node unified-inventory-service"
-                      service_cluster: "unified-inventory-service"
-                      address: "unified-inventory-service"
-
-                  - name: Manage service for unified inventory service
-                    ansible.platform.service:
-                      name: "unified inventory service api"
-                      description: "Unified Inventory Service API"
-                      api_slug: "unified-inventory"
-                      http_port: "port-8000"
-                      service_cluster: "unified-inventory-service"
-                      is_service_https: false
-                      service_path: "/api/unified-inventory-service/"
-                      service_port: 8000
-                      order: 10
-
-                  - name: Manage route for unified inventory service
-                    ansible.platform.route:
-                      name: "unified inventory service ui"
-                      description: "Unified Inventory Service UI"
-                      gateway_path: "/unified-inventory-service/"
-                      http_port: "port-8000"
-                      service_cluster: "unified-inventory-service"
-                      is_service_https: false
-                      service_path: "/"
-                      service_port: 8000
-                      enable_gateway_auth: false
-              ...
-              EOF
-              ansible-playbook /tmp/playbook.yaml \
-                   -e gateway_username=$gateway_admin_username \
-                   -e gateway_password=$gateway_admin_password \
-                   -e gateway_host=$gateway_host
-          env:
-            - name: gateway_admin_username
-              value: "admin"
-            - name: gateway_admin_password
-              valueFrom:
-                secretKeyRef:
-                  name: myaap-admin-password
-                  key: password
-            - name: gateway_host
-              value: http://myaap-api.aap26.svc.cluster.local
-```
-
-### 3. Create the kustomize overlay
-
-#### `manifests/overlays/addons/unified-inventory-service/kustomization.yaml`
-
-```yaml
----
-resources:
-  - ../../../base/apps/unified-inventory-service/
-
-images:
-  - name: __UNIFIED_INVENTORY_SERVICE_IMAGE__
-    newName: localhost:5001/aap26/unified-inventory-service
-    newTag: latest
-  - name: __EE_SUPPORTED_IMAGE__
-    newName: localhost:5001/aap26/ee-supported-rhel9
-    newTag: latest
-
-namespace: aap26
-```
-
-### 4. Create the skaffold addon
-
-#### `skaffolding/addons/unified-inventory-service/skaffold.yaml`
-
-```yaml
----
-apiVersion: skaffold/v4beta13
-kind: Config
-metadata:
-  name: unified-inventory-service
-build:
-  tagPolicy:
-    sha256: {}
-  local:
-    push: true
-profiles:
-  - name: unified-inventory-service
-    activation:
-      - env: AAP_UNIFIED_INVENTORY_SERVICE=true
-      - env: AAP_VERSION=2.6
-    requiresAllActivations: true
-    build:
-      artifacts:
-        - image: localhost:5001/aap26/unified-inventory-service
-          custom:
-            buildCommand: |
-              podman build -f ../../../src/unified-inventory-service/Containerfile -t $IMAGE ../../../src/unified-inventory-service/ && podman push --tls-verify=false $IMAGE
-    deploy:
-      kubectl:
-        hooks:
-          before:
-            - host:
-                command:
-                  - "sh"
-                  - "-c"
-                  - "create-namespace-if-missing.sh ${AAP_KUBE_NAMESPACE}"
-    manifests:
-      kustomize:
-        paths:
-          - ../../../manifests/overlays/addons/unified-inventory-service
-```
-
-### 5. Register the addon in the root skaffold config
-
-Add this entry to the `requires` list in `skaffolding/skaffold.yaml`:
-
-```yaml
-requires:
-  # ... existing entries ...
-  - configs: ["unified-inventory-service"]
-    path: addons/unified-inventory-service/skaffold.yaml
-```
-
-### 6. Deploy
+Activated with:
 
 ```bash
-export AAP_UNIFIED_INVENTORY_SERVICE=true
+export AAP_INVENTORY_SERVICE=true
+```
+
+### 4. Deploy
+
+```bash
+export AAP_INVENTORY_SERVICE=true
 export AAP_VERSION=2.6
 make clean && make aap
 ```
 
-The service will be available at `http://localhost:44926/api/unified-inventory/`.
+The service will be available at `http://localhost:44926/api/inventory/v1/`.
 
 Admin password:
 
@@ -539,16 +197,18 @@ make admin-password
 
 ```bash
 PASS=$(make admin-password 2>/dev/null | tail -1)
-curl -s http://localhost:44926/api/unified-inventory/v1/ -u "admin:$PASS" | python3 -m json.tool
+curl -s http://localhost:44926/api/inventory/v1/providers/ -u "admin:$PASS" | python3 -m json.tool
 ```
 
-## Architecture Notes
+## Architecture notes
 
-- **Gateway slug**: `unified-inventory` (20-char gateway limit on `api_slug`)
-- **Internal service name**: `unified-inventory-service` (used for K8s service, deployment, DNS)
-- **Service prefix middleware**: Automatically strips `/api/unified-inventory-service/` prefix, so Django app routes are clean `/api/v1/...` internally
-- **Database**: Dedicated PostgreSQL 15 instance (`unified_inventory_db`)
+- **Gateway slug**: `inventory` (20-char gateway limit on `api_slug`)
+- **Internal service name**: `inventory-service` (K8s service, deployment, DNS)
+- **Service prefix middleware**: Strips `/api/inventory/` prefix so Django routes
+  are clean `/api/v1/...` internally
+- **Database**: Dedicated PostgreSQL 15 instance (`inventory_db`)
 - **Authentication**: Via AAP gateway JWT — no direct auth on the service
+- **Taxonomy**: Seeded by data migration — 15 categories, 82 types, VMware mappings
 
 ## License
 

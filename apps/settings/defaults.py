@@ -2,10 +2,12 @@
 Top level settings file for all apps.
 
 The settings here overrides any setting previously loaded
-from the `unified_inventory_service.settings`.
+from the `inventory_service.settings`.
 """
 
-extra_applications = []
+extra_applications = [
+    "django_filters",
+]
 """Extra applications added after PSF templating."""
 
 dab_applications = [
@@ -24,6 +26,7 @@ adjust `pyproject` dab extra dependencies acording to apps added/removed here.
 
 project_applications = [
     "apps.core",
+    "apps.inventory",
 ]
 """List of applications from the apps/ folder."""
 
@@ -47,6 +50,7 @@ REST_FRAMEWORK = {
     "UNAUTHENTICATED_USER": None,
     "UNAUTHENTICATED_TOKEN": None,
     "DEFAULT_FILTER_BACKENDS": [
+        "django_filters.rest_framework.DjangoFilterBackend",
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ],
@@ -62,9 +66,9 @@ REST_FRAMEWORK = {
 }
 """REST framework settings."""
 
-SPECTACULAR_SETTINGS__TITLE = "unified_inventory_service API"
+SPECTACULAR_SETTINGS__TITLE = "inventory_service API"
 """Title of Swagger the API documentation."""
-SPECTACULAR_SETTINGS__DESCRIPTION = "API documentation for the unified_inventory_service"
+SPECTACULAR_SETTINGS__DESCRIPTION = "API documentation for the inventory_service"
 """Description of Swagger the API documentation."""
 SPECTACULAR_SETTINGS__VERSION = "v1"
 """Version of Swagger the API documentation."""
