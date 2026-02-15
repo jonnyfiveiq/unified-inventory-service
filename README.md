@@ -18,6 +18,17 @@ relationship in the inventory service PostgreSQL database:
 
 > **Tip:** open the SVG directly in a browser to pan / zoom on the full diagram.
 
+### VMware vSphere seed data example
+
+The following diagram shows the topology created by the `seed_vmware_data`
+management command — a realistic vSphere lab with 27 resources and 49
+relationships. It illustrates how the schema above maps to real VMware objects
+(vCenter, clusters, ESXi hosts, datastores, resource pools and VMs) and the
+relationship types (`runs_on`, `attached_to`, `member_of`, `part_of`)
+that connect them:
+
+![VMware Seed Data Topology](vmware-seed-example.svg)
+
 ## Data Model
 
 ```
