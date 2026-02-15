@@ -9,54 +9,16 @@ tracking infrastructure resources across VMware vSphere, public cloud and
 bare-metal providers. Includes RBAC, activity streams, feature flags and
 gateway authentication out of the box.
 
-## Inventory API
+## Database Schema
 
-Once deployed behind the AAP gateway the inventory endpoints are available at
-`/api/inventory/v1/`:
+The full entity-relationship diagram shows every model, field, and foreign-key
+relationship in the inventory service PostgreSQL database:
 
-| Endpoint | Description |
-|---|---|
-| `/providers/` | Infrastructure providers (VMware vCenter, AWS, Azure…) |
-| `/providers/{id}/collect/` | Trigger a collection run for a provider |
-| `/collection-runs/` | Collection run status and history |
-| `/resources/` | Discovered resources (VMs, hosts, datastores…) |
-| `/resource-relationships/` | Relationships between resources (runs_on, attached_to…) |
-| `/resource-categories/` | Taxonomy — top-level resource categories |
-| `/resource-types/` | Taxonomy — resource types within each category |
-| `/vendor-type-mappings/` | Taxonomy — maps vendor-specific types to canonical types |
+![Inventory Service Schema](schema.svg)
 
-### Filtering and search
+> **Tip:** open the SVG directly in a browser to pan / zoom on the full diagram.
 
-Resources support filtering and full-text search:
-
-```
-GET /api/inventory/v1/resources/?state=running
-GET /api/inventory/v1/resources/?search=esxi
-GET /api/inventory/v1/resources/?provider__id=<uuid>
-GET /api/inventory/v1/resources/?os_type=linux
-GET /api/inventory/v1/resources/?region=Lab-DC1
-```
-
-Providers support filtering by vendor:
-
-```
-GET /api/inventory/v1/providers/?vendor=vmware
-```
-
-### Platform endpoints (via django-ansible-base)
-
-| Endpoint | Description |
-|---|---|
-| `/organizations/` | Organization management |
-| `/users/` | User management |
-| `/teams/` | Team management |
-| `/role_definitions/` | RBAC role definitions |
-| `/activitystream/` | Activity stream |
-| `/feature_flags/` | Feature flag management |
-| `/service-index/` | Service index |
-| `/docs/` | API documentation |
-
-## Data model
+## Data Model
 
 ```
 Provider
@@ -72,6 +34,152 @@ ResourceType ← VendorTypeMapping (maps vendor-specific names → canonical typ
 The taxonomy (categories, types and vendor mappings) is seeded by migration and
 covers 15 categories, 82 resource types and 20+ VMware vSphere mappings.
 
+## Inventory API
+
+Once deployed behind the AAP gateway the inventory endpoints are available at
+`/api/inventory/v1/`. All endpoints require authentication.
+
+### Providers — full CRUD
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/providers/` | List all providers (filterable, searchable) |
+| `POST` | `/providers/` | Register a new infrastructure provider |
+| `GET` | `/providers/{id}/` | Provider detail |
+| `PATCH` | `/providers/{id}/` | Update provider fields |
+| `PUT` | `/providers/{id}/` | Replace a provider |
+| `DELETE` | `/providers/{id}/` | Remove a provider and its resources |
+| `POST` | `/providers/{id}/collect/` | Trigger an inventory collection run |
+
+**Filters:** `vendor`, `infrastructure`, `enabled`, `organization`
+**Search:** `name`, `vendor`, `provider_type`
+**Ordering:** `name`, `vendor`, `created`, `modified`
+
+The `collect` action creates a `CollectionRun` in `pending` state and dispatches
+an async task via dispatcherd. Returns `202 Accepted` with the run object, or
+`409 Conflict` if the provider is disabled or a collection is already in progress.
+
+```json
+POST /api/inventory/v1/providers/{id}/collect/
+{
+    "collection_type": "full",
+    "target_resource_types": ["virtual_machine", "vpc"]
+}
+```
+
+### Collection Runs — read-only + cancel
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/collection-runs/` | List all collection runs (filterable) |
+| `GET` | `/collection-runs/{id}/` | Run detail with status and timing |
+| `POST` | `/collection-runs/{id}/cancel/` | Cancel a running or pending collection |
+
+**Filters:** `status`, `provider`, `collection_type`
+**Search:** `provider__name`, `task_uuid`
+**Ordering:** `started_at`, `completed_at`, `status`
+
+Collection runs are created exclusively through the provider `collect` action,
+never directly via POST to this endpoint. The `cancel` action sends a cancel
+command to the dispatcherd worker and marks the run as `canceled`.
+
+### Resources — read-only
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/resources/` | List discovered resources (filterable, searchable) |
+| `GET` | `/resources/{id}/` | Resource detail |
+
+**Filters:** `provider`, `resource_type`, `state`, `region`, `os_type`, `organization`
+**Search:** `name`, `ems_ref`, `fqdn`, `vendor_type`
+**Ordering:** `name`, `state`, `first_discovered_at`, `last_seen_at`
+
+Resources are created by collection tasks, not directly via the API.
+
+```
+GET /api/inventory/v1/resources/?state=running
+GET /api/inventory/v1/resources/?search=esxi
+GET /api/inventory/v1/resources/?provider=<uuid>
+GET /api/inventory/v1/resources/?os_type=linux
+GET /api/inventory/v1/resources/?region=Lab-DC1
+```
+
+### Resource Relationships — read-only
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/resource-relationships/` | List all resource relationships |
+| `GET` | `/resource-relationships/{id}/` | Relationship detail |
+
+**Filters:** `relationship_type`, `source`, `target`
+**Ordering:** `relationship_type`
+
+### Taxonomy — read-only reference data
+
+The taxonomy endpoints expose the normalized resource classification hierarchy:
+`ResourceCategory` → `ResourceType` → `VendorTypeMapping`.
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/resource-categories/` | Top-level resource categories |
+| `GET` | `/resource-categories/{id}/` | Category detail |
+| `GET` | `/resource-types/` | Resource types within each category |
+| `GET` | `/resource-types/{id}/` | Type detail |
+| `GET` | `/vendor-type-mappings/` | Maps vendor-specific types to canonical types |
+| `GET` | `/vendor-type-mappings/{id}/` | Mapping detail |
+
+**Resource Categories** — Search: `name`, `slug` · Ordering: `sort_order`, `name`
+**Resource Types** — Filters: `category`, `is_countable` · Search: `name`, `slug` · Ordering: `sort_order`, `name`, `category`
+**Vendor Type Mappings** — Filters: `vendor`, `resource_type` · Search: `vendor`, `vendor_resource_type` · Ordering: `vendor`, `vendor_resource_type`
+
+```
+GET /api/inventory/v1/resource-types/?search=virtual_machine
+GET /api/inventory/v1/vendor-type-mappings/?vendor=vmware
+```
+
+### Platform endpoints (via django-ansible-base)
+
+These endpoints are provided by the framework and cover org/user/team
+management, RBAC, activity streams and service discovery.
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET/POST` | `/organizations/` | Organization management |
+| `GET/PATCH` | `/organizations/{id}/` | Organization detail |
+| `GET` | `/organizations/{id}/teams/` | Teams in an organization |
+| `GET/POST` | `/teams/` | Team management |
+| `GET/PATCH` | `/teams/{id}/` | Team detail |
+| `GET` | `/users/` | User listing |
+| `GET` | `/users/{id}/` | User detail |
+| `GET` | `/role_definitions/` | RBAC role definitions |
+| `GET` | `/activitystream/` | Activity stream |
+| `GET` | `/feature_flags/` | Feature flag management |
+| `GET` | `/service-index/` | Service index |
+| `GET` | `/docs/` | API documentation (browsable) |
+
+### Health and operational endpoints
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/ping/` | Lightweight liveness check |
+| `GET` | `/health/` | Service health status |
+
+## API Endpoint Summary
+
+| Endpoint | Access | Methods | Notes |
+|---|---|---|---|
+| `/providers/` | CRUD | GET, POST, PATCH, PUT, DELETE | Full lifecycle management |
+| `/providers/{id}/collect/` | Action | POST | Triggers async collection |
+| `/collection-runs/` | Read-only | GET | + POST cancel action |
+| `/resources/` | Read-only | GET | Created by collection tasks |
+| `/resource-relationships/` | Read-only | GET | Created by collection tasks |
+| `/resource-categories/` | Read-only | GET | Seeded by migration |
+| `/resource-types/` | Read-only | GET | Seeded by migration |
+| `/vendor-type-mappings/` | Read-only | GET | Seeded by migration |
+| `/organizations/` | CRUD | GET, POST, PATCH | Via DAB |
+| `/teams/` | CRUD | GET, POST, PATCH | Via DAB |
+| `/users/` | Read-only | GET | Via DAB |
+
 ## Local development
 
 ### Prerequisites
@@ -85,7 +193,6 @@ covers 15 categories, 82 resource types and 20+ VMware vSphere mappings.
 uv venv
 source .venv/bin/activate
 uv pip install -e '.[dev]'
-
 cp settings.local.py.example settings.local.py
 python manage.py migrate
 python manage.py createsuperuser
