@@ -1,8 +1,12 @@
 from .collection_run import CollectionRunViewSet
 from .provider import ProviderViewSet
 from .resource import ResourceRelationshipViewSet, ResourceViewSet
-from .taxonomy import ResourceCategoryViewSet, ResourceTypeViewSet, VendorTypeMappingViewSet,
-    PropertyDefinitionViewSet
+from .taxonomy import (
+    ResourceCategoryViewSet,
+    ResourceTypeViewSet,
+    VendorTypeMappingViewSet,
+    PropertyDefinitionViewSet,
+)
 
 __all__ = [
     "CollectionRunViewSet",
@@ -11,8 +15,8 @@ __all__ = [
     "ResourceRelationshipViewSet",
     "ResourceTypeViewSet",
     "ResourceViewSet",
-    "VendorTypeMappingViewSet,
-    PropertyDefinitionViewSet",
+    "VendorTypeMappingViewSet",
+    "PropertyDefinitionViewSet",
 ]
 
 from .sighting import ResourceSightingViewSet  # noqa: F401

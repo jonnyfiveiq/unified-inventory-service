@@ -1,8 +1,12 @@
 from .collection_run import CollectionRunCancelSerializer, CollectionRunSerializer
 from .provider import ProviderCollectSerializer, ProviderSerializer
 from .resource import ResourceRelationshipSerializer, ResourceSerializer, ResourceSightingSerializer
-from .taxonomy import ResourceCategorySerializer, ResourceTypeSerializer, VendorTypeMappingSerializer,
-    PropertyDefinitionSerializer
+from .taxonomy import (
+    ResourceCategorySerializer,
+    ResourceTypeSerializer,
+    VendorTypeMappingSerializer,
+    PropertyDefinitionSerializer,
+)
 
 __all__ = [
     "CollectionRunCancelSerializer",
@@ -14,6 +18,6 @@ __all__ = [
     "ResourceSerializer",
     "ResourceSightingSerializer",
     "ResourceTypeSerializer",
-    "VendorTypeMappingSerializer,
-    PropertyDefinitionSerializer",
+    "VendorTypeMappingSerializer",
+    "PropertyDefinitionSerializer",
 ]
