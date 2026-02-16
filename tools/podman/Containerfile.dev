@@ -1,0 +1,32 @@
+# =============================================================================
+# DEVELOPMENT ONLY - DO NOT USE IN PRODUCTION
+# =============================================================================
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV UV_LINK_MODE=copy
+ENV UV_NO_CACHE=1
+ENV INVENTORY_SERVICE_MODE=development
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y git curl && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+COPY pyproject.toml uv.lock* ./
+
+RUN for i in 1 2 3 4 5; do \
+      (uv lock --upgrade-package dispatcherd 2>/dev/null; uv sync --no-install-project) && break; \
+      echo "=== Attempt \$i failed, retrying in 5s... ==="; \
+      sleep 5; \
+    done
+
+COPY . .
+RUN chmod -R a+rw /app
+RUN uv sync
+
+EXPOSE 5000
+
+CMD ["/bin/sh", "-c", "uv run --no-sync python manage.py migrate && uv run --no-sync python manage.py runserver 0.0.0.0:5000"]

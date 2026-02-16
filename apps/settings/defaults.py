@@ -82,3 +82,29 @@ CACHES = {
     },
 }
 CSRF_TRUSTED_ORIGINS = []
+
+# Dispatcher configuration for dispatcherd (pg_notify broker)
+# The conninfo string is overridden at runtime by apps/settings/database.py
+# based on INVENTORY_SERVICE_DB_* environment variables.
+DISPATCHER_CONFIG = {
+    "version": 2,
+    "service": {
+        "main_kwargs": {"node_id": "inventory-service-a"},
+        "process_manager_kwargs": {},
+    },
+    "brokers": {
+        "pg_notify": {
+            "config": {
+                "conninfo": (
+                    "dbname=inventory_db user=inventory password=inventory123 "
+                    "host=127.0.0.1 port=5432 application_name=dispatcher_inventory_service"
+                )
+            },
+            "sync_connection_factory": "dispatcherd.brokers.pg_notify.connection_saver",
+            "channels": ["inventory-service-tasks"],
+            "default_publish_channel": "inventory-service-tasks",
+        },
+        "socket": {"socket_path": "inventory_service_dispatcher.sock"},
+    },
+    "publish": {"default_control_broker": "socket", "default_broker": "pg_notify"},
+}

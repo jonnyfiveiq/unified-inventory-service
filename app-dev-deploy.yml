@@ -2,9 +2,148 @@
 # DEVELOPMENT ONLY - DO NOT USE IN PRODUCTION
 # =============================================================================
 # This manifest is for local development and testing only.
-# It uses DEBUG=true, emptyDir volumes, and is not suitable for production.
+# It uses Django's runserver which is not suitable for production workloads.
 # =============================================================================
-
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: inventory-service-postgres-configuration
+type: Opaque
+stringData:
+  database: inventory_db
+  host: inventory-service-postgres-15
+  password: helloSvcDevPass123456789abcdef
+  port: "5432"
+  postgres_admin_password: helloSvcAdminPass987654321xyz
+  type: managed
+  username: inventory_svc
+---
+apiVersion: v1
+data:
+  init_component_dbs.sh: |
+    db_exists=$(psql -tAc "SELECT 1 FROM pg_database WHERE datname='inventory_db'")
+    user_exists=$(psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='inventory_svc'")
+    if [ -z "$user_exists" ]; then
+        psql -c "CREATE USER inventory_svc WITH ENCRYPTED PASSWORD 'helloSvcDevPass123456789abcdef';"
+        psql -c "GRANT USAGE, CREATE ON SCHEMA public TO inventory_svc"
+    fi
+    if [ -z "$db_exists" ]; then
+        psql -c "CREATE DATABASE inventory_db WITH OWNER inventory_svc;"
+    fi
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/component: database
+    app.kubernetes.io/instance: postgres-15-inventory-service
+    app.kubernetes.io/name: postgres-15
+  name: inventory-service-postgresql-init
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app.kubernetes.io/component: database
+    app.kubernetes.io/instance: postgres-15-inventory-service
+    app.kubernetes.io/name: postgres-15
+    app.kubernetes.io/part-of: inventory-service
+  name: inventory-service-postgres-15
+spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  podManagementPolicy: OrderedReady
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: database
+      app.kubernetes.io/instance: postgres-15-inventory-service
+      app.kubernetes.io/name: postgres-15
+  serviceName: inventory-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: database
+        app.kubernetes.io/instance: postgres-15-inventory-service
+        app.kubernetes.io/name: postgres-15
+        app.kubernetes.io/part-of: inventory-service
+    spec:
+      containers:
+        - env:
+            - name: POSTGRESQL_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: postgres_admin_password
+                  name: inventory-service-postgres-configuration
+            - name: POSTGRESQL_MAX_CONNECTIONS
+              value: "1024"
+            - name: POSTGRESQL_LOG_DESTINATION
+              value: /dev/stderr
+          image: localhost:5001/aap26/postgresql-15
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            exec:
+              command:
+                - bash
+                - -c
+                - pg_isready -p 5432 -d postgres
+            failureThreshold: 3
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 2
+          name: postgres
+          ports:
+            - containerPort: 5432
+              name: postgres-15
+              protocol: TCP
+          resources:
+            requests: {}
+          volumeMounts:
+            - mountPath: /var/lib/pgsql/data
+              name: postgres-data
+              subPath: data
+            - mountPath: /opt/app-root/src/postgresql-start
+              name: postgresql-init
+      volumes:
+        - configMap:
+            defaultMode: 420
+            name: inventory-service-postgresql-init
+          name: postgresql-init
+  volumeClaimTemplates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: postgres-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi
+        volumeMode: Filesystem
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory-service-postgres-15
+  labels:
+    app.kubernetes.io/component: database
+    app.kubernetes.io/instance: postgres-15-inventory-service
+    app.kubernetes.io/name: postgres-15
+    app.kubernetes.io/part-of: inventory-service
+spec:
+  selector:
+    app.kubernetes.io/component: database
+    app.kubernetes.io/instance: postgres-15-inventory-service
+    app.kubernetes.io/name: postgres-15
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+  type: ClusterIP
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -23,20 +162,49 @@ spec:
     spec:
       containers:
         - name: inventory-service
-          image: localhost:5001/inventory-service:latest
+          image: __INVENTORY_SERVICE_IMAGE__
           imagePullPolicy: Always
           ports:
             - containerPort: 8000
           env:
+            - name: INVENTORY_SERVICE_DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  key: host
+                  name: inventory-service-postgres-configuration
+            - name: INVENTORY_SERVICE_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  key: database
+                  name: inventory-service-postgres-configuration
+            - name: INVENTORY_SERVICE_DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  key: port
+                  name: inventory-service-postgres-configuration
+            - name: INVENTORY_SERVICE_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  key: username
+                  name: inventory-service-postgres-configuration
+            - name: INVENTORY_SERVICE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: password
+                  name: inventory-service-postgres-configuration
             - name: INVENTORY_SERVICE_ALLOWED_HOSTS
-              value: '["*"]'
-            - name: INVENTORY_SERVICE_DEBUG
-              value: "true"
-            - name: INVENTORY_SERVICE_DATABASES__default__NAME
-              value: "/app/data/db.sqlite3"
-          volumeMounts:
-            - name: sqlite-data
-              mountPath: /app/data
+              value: '["localhost","127.0.0.1","0.0.0.0","inventory-service"]'
+            - name: INVENTORY_SERVICE_AAP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: myaap-admin-password
+                  key: password
+            - name: INVENTORY_SERVICE_ANSIBLE_BASE_JWT_KEY
+              value: http://myaap-api.aap26.svc.cluster.local
+            - name: INVENTORY_SERVICE_ANSIBLE_BASE_JWT_VALIDATE_CERT
+              value: "False"
+            - name: INVENTORY_SERVICE_SERVICE_PREFIX
+              value: inventory
           readinessProbe:
             httpGet:
               path: /ping/
@@ -49,19 +217,18 @@ spec:
               port: 8000
             initialDelaySeconds: 15
             periodSeconds: 10
-      volumes:
-        - name: sqlite-data
-          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: inventory-service
+  labels:
+    app: inventory-service
 spec:
   selector:
     app: inventory-service
   ports:
     - protocol: TCP
-      port: 80
+      port: 8000
       targetPort: 8000
   type: ClusterIP

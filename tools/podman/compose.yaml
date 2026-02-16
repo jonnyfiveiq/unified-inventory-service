@@ -1,0 +1,52 @@
+x-environment: &common-env
+  INVENTORY_SERVICE_DB_HOST: postgres
+  INVENTORY_SERVICE_DB_PORT: 5432
+  INVENTORY_SERVICE_DB_NAME: inventory_db
+  INVENTORY_SERVICE_DB_USER: inventory
+  INVENTORY_SERVICE_DB_PASSWORD: inventory123
+  INVENTORY_SERVICE_MODE: development
+
+services:
+  postgres:
+    image: quay.io/sclorg/postgresql-15-c9s:latest
+    environment:
+      POSTGRESQL_USER: inventory
+      POSTGRESQL_PASSWORD: inventory123
+      POSTGRESQL_DATABASE: inventory_db
+    ports:
+      - '5532:5432'
+    volumes:
+      - 'postgres_data:/var/lib/pgsql/data'
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "inventory", "-d", "inventory_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  inventory-service-api:
+    image: localhost/inventory-service-api
+    environment:
+      << : *common-env
+    build:
+      context: ../../
+      dockerfile: tools/podman/Containerfile.dev
+    command:
+      - /bin/bash
+      - -c
+      - >-
+        uv run --no-sync python manage.py migrate
+        && uv run --no-sync python manage.py runserver 0.0.0.0:5000
+    ports:
+      - "8000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [ 'CMD', 'curl', '-q', 'http://localhost:5000/api/inventory/v1/' ]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data: {}

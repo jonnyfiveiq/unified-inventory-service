@@ -134,7 +134,8 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": BASE_DIR / "db.sqlite3",
-    }
+    },
+    "dispatcher": {},
 }
 """Database configuration"""
 
@@ -318,6 +319,10 @@ load_standard_settings_files(DYNACONF)
 
 # Load envvars at the end to allow them to override everything loaded so far.
 load_envvars(DYNACONF)
+
+# Build PostgreSQL DATABASES from DB_* env vars (mirrors PSF pattern)
+from apps.settings.database import override_database_settings
+override_database_settings(DYNACONF)
 
 # Load development only apps
 if not DYNACONF.get("IS_RUNNING_TESTS") and DYNACONF.get("DEBUG"):
