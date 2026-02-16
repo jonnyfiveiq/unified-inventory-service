@@ -9,11 +9,12 @@ from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
 
-from apps.inventory.models import ResourceCategory, ResourceType, VendorTypeMapping
+from apps.inventory.models import ResourceCategory, ResourceType, VendorTypeMapping, PropertyDefinition
 from apps.inventory.v1.serializers import (
     ResourceCategorySerializer,
     ResourceTypeSerializer,
     VendorTypeMappingSerializer,
+    PropertyDefinitionSerializer,
 )
 
 
@@ -41,3 +42,23 @@ class VendorTypeMappingViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSe
     filterset_fields = ["vendor", "resource_type"]
     search_fields = ["vendor", "vendor_resource_type"]
     ordering_fields = ["vendor", "vendor_resource_type"]
+
+
+class PropertyDefinitionViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
+    """
+    Property definitions define the expected JSONB keys for each resource type.
+
+    Collector authors should query this endpoint to discover the contract for
+    Resource.properties for any given resource type. This ensures consistent
+    key naming across collectors (solving the 'publicly_available' vs 'public'
+    vs 'is_public' problem).
+
+    Filters: resource_type, vendor_scope, required, value_type
+    Search: key, name
+    """
+    queryset = PropertyDefinition.objects.select_related("resource_type").all()
+    serializer_class = PropertyDefinitionSerializer
+    permission_classes = [IsAuthenticated]
+    filterset_fields = ["resource_type", "vendor_scope", "required", "value_type"]
+    search_fields = ["key", "name"]
+    ordering_fields = ["key", "name", "resource_type"]

@@ -310,7 +310,58 @@ if [ -n "$FILTER_PID" ] && [ "$FILTER_PID" != "None" ]; then
   fi
 fi
 
-# ── 7. Cleanup (delete the test provider) ──────────────────────────────────
+# ── 7. Resource Sightings & History ────────────────────────────────────────
+header "Resource Sightings"
+if api GET "/resource-sightings/" 200; then
+  COUNT=$(json_field "['count']")
+  pass "GET /resource-sightings/ → $COUNT sightings"
+else
+  fail "GET /resource-sightings/ → HTTP $CODE"
+fi
+
+# Get a resource ID for nested endpoint tests
+RESOURCE_ID=""
+if api GET "/resources/?state=running" 200; then
+  RESOURCE_ID=$(json_field "['results'][0]['id']")
+fi
+
+if [ -n "$RESOURCE_ID" ] && [ "$RESOURCE_ID" != "None" ]; then
+  # Nested sightings on a resource
+  if api GET "/resources/${RESOURCE_ID}/sightings/" 200; then
+    COUNT=$(json_field "['count']")
+    pass "GET /resources/{id}/sightings/ → $COUNT sightings"
+  else
+    fail "GET /resources/{id}/sightings/ → HTTP $CODE"
+  fi
+
+  # Resource history summary
+  if api GET "/resources/${RESOURCE_ID}/history/" 200; then
+    SEEN=$(json_field "['tracking']['seen_count']")
+    SIGHTINGS=$(json_field "['summary']['total_sightings']")
+    pass "GET /resources/{id}/history/ → seen_count=$SEEN, sightings=$SIGHTINGS"
+  else
+    fail "GET /resources/{id}/history/ → HTTP $CODE"
+  fi
+
+  # Filtered sightings by date range
+  if api GET "/resource-sightings/?resource=${RESOURCE_ID}&seen_after=2020-01-01T00:00:00Z" 200; then
+    pass "GET /resource-sightings/?resource=<id>&seen_after=... → filtered OK"
+  else
+    fail "GET /resource-sightings/?resource=<id>&seen_after=... → HTTP $CODE"
+  fi
+
+  # Search by canonical_id (SMBIOS UUID fragment)
+  if api GET "/resources/?search=502e71fa" 200; then
+    COUNT=$(json_field "['count']")
+    pass "GET /resources/?search=502e71fa (SMBIOS UUID) → $COUNT results"
+  else
+    fail "GET /resources/?search=502e71fa → HTTP $CODE"
+  fi
+else
+  skip "No running resource found — skipping sighting & history tests"
+fi
+
+# ── 8. Cleanup (delete the test provider) ──────────────────────────────────
 header "Cleanup"
 if [ -n "$CREATED_PROVIDER" ] && [ "$CREATED_PROVIDER" != "None" ]; then
   if api DELETE "/providers/${CREATED_PROVIDER}/" 204; then

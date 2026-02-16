@@ -67,6 +67,11 @@ Tracking fields on each resource:
 | `first_discovered_at` | Timestamp of first collection run that found this resource |
 | `last_seen_at` | Timestamp of most recent collection run that observed it |
 | `seen_count` | Number of collection runs that have observed this resource |
+| `description` | Description or notes for this resource |
+| `boot_time` | Last boot/start time — used for uptime calculations |
+| `cloud_tenant` | Cloud tenant/project/subscription (Azure, OpenStack, GCP) |
+| `flavor` | Cloud instance type (e.g. `m5.xlarge`, `Standard_D4s_v3`) |
+| `ems_created_on` | When the provider created this resource (not when we discovered it) |
 
 Each collection run also creates a **ResourceSighting** — a lightweight
 point-in-time snapshot capturing the resource state, compute metrics, and
@@ -263,6 +268,36 @@ GET /api/inventory/v1/resource-types/?search=virtual_machine
 GET /api/inventory/v1/vendor-type-mappings/?vendor=vmware
 ```
 
+### Property Definitions — schema contract for Resource.properties
+
+The `PropertyDefinition` model solves the consistency problem with JSONB
+`properties` by defining the expected keys, types, and descriptions for each
+`ResourceType`. Collector authors query this endpoint to discover what keys to
+write, ensuring consistent naming across all collectors (no more
+`publicly_available` vs `public` vs `is_public`).
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/property-definitions/` | List all property definitions (filterable) |
+| `GET` | `/property-definitions/{id}/` | Definition detail |
+
+**Filters:** `resource_type`, `vendor_scope`, `required`, `value_type`
+**Search:** `key`, `name`
+**Ordering:** `key`, `name`, `resource_type`
+
+```
+GET /api/inventory/v1/property-definitions/?resource_type=<uuid>
+GET /api/inventory/v1/property-definitions/?resource_type=<uuid>&vendor_scope=vmware
+GET /api/inventory/v1/property-definitions/?required=true
+```
+
+Each definition includes:
+- **key** — the exact JSONB key collectors should use
+- **value_type** — expected type (string, integer, float, boolean, datetime, json)
+- **required** — whether collectors MUST populate this
+- **vendor_scope** — if set, only applies to a specific vendor
+- **example_value** — documentation example
+
 ### Platform endpoints (via django-ansible-base)
 
 These endpoints are provided by the framework and cover org/user/team
@@ -302,6 +337,7 @@ management, RBAC, activity streams and service discovery.
 | `/resource-sightings/` | Read-only | GET | Historical observation snapshots |
 | `/resources/{id}/sightings/` | Read-only | GET | Nested sighting history per resource |
 | `/resources/{id}/history/` | Read-only | GET | Aggregated history for dashboards |
+| `/property-definitions/` | Read-only | GET | Schema contract for Resource.properties |
 | `/resource-categories/` | Read-only | GET | Seeded by migration |
 | `/resource-types/` | Read-only | GET | Seeded by migration |
 | `/vendor-type-mappings/` | Read-only | GET | Seeded by migration |

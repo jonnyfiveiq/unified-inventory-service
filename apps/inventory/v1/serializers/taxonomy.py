@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.inventory.models import ResourceCategory, ResourceType, VendorTypeMapping
+from apps.inventory.models import ResourceCategory, ResourceType, VendorTypeMapping, PropertyDefinition
 
 
 class ResourceCategorySerializer(serializers.ModelSerializer):
@@ -62,5 +62,29 @@ class VendorTypeMappingSerializer(serializers.ModelSerializer):
             "ansible_collection",
             "ansible_module",
             "query_file_ref",
+        ]
+        read_only_fields = fields
+
+
+class PropertyDefinitionSerializer(serializers.ModelSerializer):
+    resource_type_slug = serializers.SlugRelatedField(
+        source="resource_type",
+        slug_field="slug",
+        read_only=True,
+    )
+
+    class Meta:
+        model = PropertyDefinition
+        fields = [
+            "id",
+            "resource_type",
+            "resource_type_slug",
+            "key",
+            "name",
+            "description",
+            "value_type",
+            "required",
+            "example_value",
+            "vendor_scope",
         ]
         read_only_fields = fields

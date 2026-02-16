@@ -79,6 +79,12 @@ class Resource(models.Model):
         max_length=1024,
         help_text="Display name of the resource.",
     )
+    description = models.TextField(
+        blank=True,
+        default="",
+        help_text="Description or notes for this resource.",
+    )
+
     ems_ref = models.CharField(
         max_length=1024,
         db_index=True,
@@ -88,6 +94,28 @@ class Resource(models.Model):
 
     # The vendor's own name for this resource type (before normalization)
     # e.g. "EC2 Instance", "vSphere Virtual Machine", "Nexus 9000"
+    # === Cross-Provider Asset Identity ===
+    canonical_id = models.CharField(
+        max_length=1024,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text="Stable cross-provider asset fingerprint. For compute resources "
+        "this is typically the SMBIOS UUID, which persists across provider "
+        "boundaries (e.g. the same physical machine seen via VMware and via "
+        "bare-metal IPMI). For cloud resources, use the most stable vendor "
+        "identifier (e.g. EC2 instance-id). Collectors are responsible for "
+        "determining the best canonical_id for each resource type.",
+    )
+    vendor_identifiers = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="All vendor-specific identifiers as key-value pairs. "
+        "Examples: {'moid': 'vm-1001', 'instance_uuid': '502e71fa-...', "
+        "'bios_uuid': '4202e71f-...'} for VMware; {'instance_id': 'i-0abc', "
+        "'smbios_uuid': 'ec2abcde-...'} for AWS EC2.",
+    )
+
     vendor_type = models.CharField(
         max_length=256,
         blank=True,
@@ -110,6 +138,13 @@ class Resource(models.Model):
         help_text="Power state for compute resources (on, off, suspended).",
     )
 
+    boot_time = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last boot/start time for compute resources. "
+        "Used for uptime calculations.",
+    )
+
     # === Location / Topology ===
     region = models.CharField(
         max_length=128,
@@ -123,6 +158,33 @@ class Resource(models.Model):
         blank=True,
         default="",
         help_text="Availability zone or rack location.",
+    )
+
+    cloud_tenant = models.CharField(
+        max_length=256,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text="Cloud tenant/project/subscription ID. "
+        "Azure subscription, OpenStack project, GCP project ID.",
+    )
+
+    # === Cloud Instance Flavor/Type ===
+    flavor = models.CharField(
+        max_length=256,
+        blank=True,
+        default="",
+        help_text="Cloud instance type or flavor (e.g. 'm5.xlarge', "
+        "'Standard_D4s_v3', 'm1.large'). First-class field because "
+        "flavor drives cost analysis, capacity planning and right-sizing.",
+    )
+
+    # === Provider-Side Creation Timestamp ===
+    ems_created_on = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the provider created this resource (not when we "
+        "first discovered it). Important for age-based lifecycle policies.",
     )
 
     # === Common Compute Attributes (denormalized for high-value queries) ===
@@ -235,6 +297,13 @@ class Resource(models.Model):
         help_text="The collection run that last updated this resource.",
     )
 
+    # === Sighting Counter ===
+    seen_count = models.PositiveIntegerField(
+        default=1,
+        help_text="Number of collection runs that have observed this resource. "
+        "Incremented by the collector on each run where the resource is found.",
+    )
+
     # === Ownership ===
     organization = models.ForeignKey(
         "core.Organization",
@@ -253,6 +322,8 @@ class Resource(models.Model):
             models.Index(fields=["organization", "resource_type"]),
             models.Index(fields=["region"]),
             models.Index(fields=["vendor_type"]),
+            models.Index(fields=["canonical_id"]),
+            models.Index(fields=["seen_count"]),
             models.Index(fields=["last_seen_at"]),
             # GIN index for JSONB properties queries
             models.Index(
@@ -331,3 +402,90 @@ class ResourceRelationship(models.Model):
 
     def __str__(self):
         return f"{self.source.name} —[{self.relationship_type}]→ {self.target.name}"
+
+
+
+
+class ResourceSighting(models.Model):
+    """
+    A historical record of a resource being observed during a collection run.
+
+    Every time a collector finds a resource, it creates a ResourceSighting
+    that snapshots the resource's key state at that moment. This enables:
+
+    - Historical timeline: show me every time we saw this asset
+    - State change tracking: when did this VM go from running to stopped?
+    - Drift detection: has the CPU/memory changed since last collection?
+    - Capacity graphs: plot this host memory over the last 30 days
+    - Compliance auditing: prove this asset was seen N times in period X
+
+    The sighting is intentionally lightweight. It captures state, compute
+    metrics, and a freeform metrics JSONB for type-specific data points.
+    Full resource details live on the Resource record itself.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    resource = models.ForeignKey(
+        Resource,
+        on_delete=models.CASCADE,
+        related_name="sightings",
+        help_text="The resource that was observed.",
+    )
+    collection_run = models.ForeignKey(
+        "inventory.CollectionRun",
+        on_delete=models.CASCADE,
+        related_name="sightings",
+        help_text="The collection run during which this resource was observed.",
+    )
+
+    seen_at = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True,
+        help_text="Timestamp of the observation.",
+    )
+
+    state = models.CharField(
+        max_length=32,
+        choices=ResourceState.choices,
+        help_text="Resource state at time of observation.",
+    )
+    power_state = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text="Power state at time of observation.",
+    )
+
+    cpu_count = models.IntegerField(
+        null=True, blank=True,
+        help_text="vCPU count at time of observation.",
+    )
+    memory_mb = models.IntegerField(
+        null=True, blank=True,
+        help_text="Memory in MB at time of observation.",
+    )
+    disk_gb = models.IntegerField(
+        null=True, blank=True,
+        help_text="Disk in GB at time of observation.",
+    )
+
+    metrics = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Type-specific metrics snapshot at time of observation. "
+        "Examples: cpu_usage_pct, memory_usage_pct, disk_usage_pct, "
+        "network_throughput_mbps, iops, power_consumption_watts.",
+    )
+
+    class Meta:
+        ordering = ["-seen_at"]
+        unique_together = [("resource", "collection_run")]
+        indexes = [
+            models.Index(fields=["resource", "-seen_at"]),
+            models.Index(fields=["collection_run"]),
+            models.Index(fields=["state"]),
+        ]
+
+    def __str__(self):
+        return f"{self.resource.name} @ {self.seen_at} [{self.state}]"

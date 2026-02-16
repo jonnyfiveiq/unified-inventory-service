@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.inventory.models import Resource, ResourceRelationship
+from apps.inventory.models import Resource, ResourceRelationship, ResourceSighting
 
 
 class ResourceSerializer(serializers.ModelSerializer):
@@ -28,12 +28,19 @@ class ResourceSerializer(serializers.ModelSerializer):
             "provider",
             "provider_name",
             "name",
+            "description",
             "ems_ref",
+            "canonical_id",
+            "vendor_identifiers",
             "vendor_type",
             "state",
             "power_state",
+            "boot_time",
             "region",
             "availability_zone",
+            "cloud_tenant",
+            "flavor",
+            "ems_created_on",
             "cpu_count",
             "memory_mb",
             "disk_gb",
@@ -49,6 +56,7 @@ class ResourceSerializer(serializers.ModelSerializer):
             "inventory_group",
             "first_discovered_at",
             "last_seen_at",
+            "seen_count",
             "organization",
         ]
         read_only_fields = fields
@@ -68,5 +76,29 @@ class ResourceRelationshipSerializer(serializers.ModelSerializer):
             "target_name",
             "relationship_type",
             "properties",
+        ]
+        read_only_fields = fields
+
+
+class ResourceSightingSerializer(serializers.ModelSerializer):
+    resource_name = serializers.StringRelatedField(
+        source="resource", read_only=True
+    )
+
+    class Meta:
+        model = ResourceSighting
+        fields = [
+            "id",
+            "resource",
+            "resource_name",
+            "collection_run",
+            "seen_at",
+            "state",
+            "power_state",
+            "boot_time",
+            "cpu_count",
+            "memory_mb",
+            "disk_gb",
+            "metrics",
         ]
         read_only_fields = fields

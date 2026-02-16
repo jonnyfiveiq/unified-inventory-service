@@ -12,6 +12,17 @@ from django.conf import settings
 from django.db import migrations, models
 
 
+def _create_gin_indexes(apps, schema_editor):
+    if schema_editor.connection.vendor == 'postgresql':
+        schema_editor.execute('CREATE INDEX IF NOT EXISTS "idx_resource_properties_gin" ON "inventory_resource" USING gin ("properties" jsonb_path_ops);')
+        schema_editor.execute('CREATE INDEX IF NOT EXISTS "idx_resource_provider_tags_gin" ON "inventory_resource" USING gin ("provider_tags" jsonb_path_ops);')
+
+def _drop_gin_indexes(apps, schema_editor):
+    if schema_editor.connection.vendor == 'postgresql':
+        schema_editor.execute('DROP INDEX IF EXISTS "idx_resource_properties_gin";')
+        schema_editor.execute('DROP INDEX IF EXISTS "idx_resource_provider_tags_gin";')
+
+
 class Migration(migrations.Migration):
 
     initial = True
@@ -215,14 +226,10 @@ class Migration(migrations.Migration):
             model_name="resource",
             index=models.Index(fields=["last_seen_at"], name="inventory_r_last_seen_idx"),
         ),
-        # GIN indexes for JSONB
-        migrations.RunSQL(
-            sql='CREATE INDEX "idx_resource_properties_gin" ON "inventory_resource" USING gin ("properties" jsonb_path_ops);',
-            reverse_sql='DROP INDEX IF EXISTS "idx_resource_properties_gin";',
-        ),
-        migrations.RunSQL(
-            sql='CREATE INDEX "idx_resource_provider_tags_gin" ON "inventory_resource" USING gin ("provider_tags" jsonb_path_ops);',
-            reverse_sql='DROP INDEX IF EXISTS "idx_resource_provider_tags_gin";',
+        # GIN indexes for JSONB — PostgreSQL only, skipped on SQLite
+        migrations.RunPython(
+            code=_create_gin_indexes,
+            reverse_code=_drop_gin_indexes,
         ),
 
         # ─── Resource Relationship ─────────────────────────────────────

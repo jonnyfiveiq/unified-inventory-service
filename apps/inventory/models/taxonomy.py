@@ -180,3 +180,93 @@ class VendorTypeMapping(models.Model):
 
     def __str__(self):
         return f"{self.vendor}:{self.vendor_resource_type} → {self.resource_type.slug}"
+
+
+class PropertyDefinition(models.Model):
+    """
+    Defines an expected key in Resource.properties for a given ResourceType.
+
+    This is the contract between the taxonomy and collector authors. When a
+    collector writes to Resource.properties, it SHOULD use the keys defined
+    here. This solves the "publicly_available vs public vs is_public" problem
+    by giving each resource type a documented schema for its JSONB properties.
+
+    Benefits:
+      - Collector authors know exactly what keys to write
+      - Reporting can query PropertyDefinition to build dynamic columns
+      - Validation can flag non-conforming properties
+      - API docs can expose the expected schema per resource type
+
+    The `required` flag indicates whether collectors MUST populate this key.
+    Optional properties are documented but not enforced.
+
+    Example definitions for resource_type='virtual_machine':
+      key='linked_clone',       value_type='boolean', required=False
+      key='fault_tolerance',    value_type='boolean', required=False
+      key='tools_status',       value_type='string',  required=False
+      key='memory_reservation', value_type='integer', required=False
+      key='publicly_available', value_type='boolean', required=False
+    """
+
+    class ValueType(models.TextChoices):
+        STRING = "string", "String"
+        INTEGER = "integer", "Integer"
+        FLOAT = "float", "Float"
+        BOOLEAN = "boolean", "Boolean"
+        DATETIME = "datetime", "DateTime (ISO 8601)"
+        JSON = "json", "JSON object/array"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    resource_type = models.ForeignKey(
+        ResourceType,
+        on_delete=models.CASCADE,
+        related_name="property_definitions",
+        help_text="The resource type this property applies to.",
+    )
+    key = models.CharField(
+        max_length=128,
+        help_text="The JSONB key name that collectors should use in "
+        "Resource.properties (e.g. 'linked_clone', 'tools_status').",
+    )
+    name = models.CharField(
+        max_length=256,
+        help_text="Human-readable name (e.g. 'Linked Clone', 'VMware Tools Status').",
+    )
+    description = models.TextField(
+        blank=True,
+        default="",
+        help_text="What this property represents and how collectors should populate it.",
+    )
+    value_type = models.CharField(
+        max_length=16,
+        choices=ValueType.choices,
+        default=ValueType.STRING,
+        help_text="Expected data type for this property value.",
+    )
+    required = models.BooleanField(
+        default=False,
+        help_text="Whether collectors MUST populate this property. "
+        "Optional properties are documented but not enforced.",
+    )
+    example_value = models.CharField(
+        max_length=512,
+        blank=True,
+        default="",
+        help_text="Example value for documentation (e.g. 'true', '4096', 'guestToolsRunning').",
+    )
+    vendor_scope = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="If set, this property only applies to a specific vendor "
+        "(e.g. 'vmware', 'aws'). Empty means it applies to all vendors.",
+    )
+
+    class Meta:
+        unique_together = [("resource_type", "key")]
+        ordering = ["resource_type", "key"]
+        verbose_name_plural = "property definitions"
+
+    def __str__(self):
+        scope = f" [{self.vendor_scope}]" if self.vendor_scope else ""
+        return f"{self.resource_type.slug}.{self.key}{scope} ({self.value_type})"

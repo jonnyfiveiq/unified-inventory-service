@@ -12,6 +12,10 @@ Usage:
 
 import uuid
 from django.core.management.base import BaseCommand
+import random
+from datetime import timedelta
+
+from django.db import models as db_models
 from django.utils import timezone
 
 from apps.core.models import Organization
@@ -20,6 +24,7 @@ from apps.inventory.models import (
     Provider,
     Resource,
     ResourceRelationship,
+    ResourceSighting,
     ResourceType,
 )
 
@@ -50,6 +55,7 @@ DATACENTERS = [
                         "model": "PowerEdge R750",
                         "vendor": "Dell Inc.",
                         "serial": "DELLR750-001",
+                        "bios_uuid": "4202e71f-a053-5b68-89c0-d10a1e245001",
                     },
                     {
                         "name": "esxi02.lab.local",
@@ -61,6 +67,7 @@ DATACENTERS = [
                         "model": "PowerEdge R750",
                         "vendor": "Dell Inc.",
                         "serial": "DELLR750-002",
+                        "bios_uuid": "4202e71f-a053-5b68-89c0-d10a1e245002",
                     },
                     {
                         "name": "esxi03.lab.local",
@@ -72,6 +79,7 @@ DATACENTERS = [
                         "model": "ProLiant DL380 Gen10",
                         "vendor": "HPE",
                         "serial": "HPEDL380-001",
+                        "bios_uuid": "4202e71f-a053-5b68-89c0-d10a1e245003",
                     },
                 ],
                 "resource_pools": [
@@ -95,6 +103,7 @@ DATACENTERS = [
                         "model": "PowerEdge R650",
                         "vendor": "Dell Inc.",
                         "serial": "DELLR650-001",
+                        "bios_uuid": "4202e71f-a053-5b68-89c0-d10a1e245004",
                     },
                 ],
                 "resource_pools": [
@@ -113,87 +122,87 @@ DATACENTERS = [
 
 VMS = [
     # Production VMs
-    {"name": "aap-controller-01", "moid": "vm-1001", "host": "esxi01.lab.local", "cluster": "Prod-Cluster-01",
+    {"name": "aap-controller-01", "moid": "vm-1001", "bios_uuid": "502e71fa-1001-4a8e-b123-aabbccddeef1", "instance_uuid": "502e1001-abcd-4a8e-b123-000000000001", "host": "esxi01.lab.local", "cluster": "Prod-Cluster-01",
      "pool": "Production", "datastore": "vsanDatastore-Prod",
      "cpu": 8, "mem": 32768, "disk": 200, "os_type": "linux", "os_name": "Red Hat Enterprise Linux 9.4",
      "ip": ["10.0.20.10"], "fqdn": "aap-controller-01.lab.local", "state": "running", "power": "poweredOn",
      "tags": {"env": "production", "app": "ansible-aap", "team": "platform-eng"},
      "ansible_group": "aap_controllers", "ansible_conn": "ssh"},
-    {"name": "aap-hub-01", "moid": "vm-1002", "host": "esxi02.lab.local", "cluster": "Prod-Cluster-01",
+    {"name": "aap-hub-01", "moid": "vm-1002", "bios_uuid": "502e71fa-1002-4a8e-b123-aabbccddeef2", "instance_uuid": "502e1002-abcd-4a8e-b123-000000000002", "host": "esxi02.lab.local", "cluster": "Prod-Cluster-01",
      "pool": "Production", "datastore": "vsanDatastore-Prod",
      "cpu": 4, "mem": 16384, "disk": 500, "os_type": "linux", "os_name": "Red Hat Enterprise Linux 9.4",
      "ip": ["10.0.20.11"], "fqdn": "aap-hub-01.lab.local", "state": "running", "power": "poweredOn",
      "tags": {"env": "production", "app": "ansible-aap", "team": "platform-eng"},
      "ansible_group": "aap_hubs", "ansible_conn": "ssh"},
-    {"name": "aap-eda-01", "moid": "vm-1003", "host": "esxi03.lab.local", "cluster": "Prod-Cluster-01",
+    {"name": "aap-eda-01", "moid": "vm-1003", "bios_uuid": "502e71fa-1003-4a8e-b123-aabbccddeef3", "instance_uuid": "502e1003-abcd-4a8e-b123-000000000003", "host": "esxi03.lab.local", "cluster": "Prod-Cluster-01",
      "pool": "Production", "datastore": "vsanDatastore-Prod",
      "cpu": 4, "mem": 16384, "disk": 100, "os_type": "linux", "os_name": "Red Hat Enterprise Linux 9.4",
      "ip": ["10.0.20.12"], "fqdn": "aap-eda-01.lab.local", "state": "running", "power": "poweredOn",
      "tags": {"env": "production", "app": "ansible-aap", "team": "platform-eng"},
      "ansible_group": "aap_eda", "ansible_conn": "ssh"},
-    {"name": "rhel9-web-01", "moid": "vm-1004", "host": "esxi01.lab.local", "cluster": "Prod-Cluster-01",
+    {"name": "rhel9-web-01", "moid": "vm-1004", "bios_uuid": "502e71fa-1004-4a8e-b123-aabbccddeef4", "instance_uuid": "502e1004-abcd-4a8e-b123-000000000004", "host": "esxi01.lab.local", "cluster": "Prod-Cluster-01",
      "pool": "Production", "datastore": "vsanDatastore-Prod",
      "cpu": 4, "mem": 8192, "disk": 80, "os_type": "linux", "os_name": "Red Hat Enterprise Linux 9.3",
      "ip": ["10.0.20.20", "10.0.30.20"], "fqdn": "rhel9-web-01.lab.local", "state": "running", "power": "poweredOn",
      "tags": {"env": "production", "app": "web-frontend", "team": "webops"},
      "ansible_group": "webservers", "ansible_conn": "ssh"},
-    {"name": "rhel9-web-02", "moid": "vm-1005", "host": "esxi02.lab.local", "cluster": "Prod-Cluster-01",
+    {"name": "rhel9-web-02", "moid": "vm-1005", "bios_uuid": "502e71fa-1005-4a8e-b123-aabbccddeef5", "instance_uuid": "502e1005-abcd-4a8e-b123-000000000005", "host": "esxi02.lab.local", "cluster": "Prod-Cluster-01",
      "pool": "Production", "datastore": "vsanDatastore-Prod",
      "cpu": 4, "mem": 8192, "disk": 80, "os_type": "linux", "os_name": "Red Hat Enterprise Linux 9.3",
      "ip": ["10.0.20.21", "10.0.30.21"], "fqdn": "rhel9-web-02.lab.local", "state": "running", "power": "poweredOn",
      "tags": {"env": "production", "app": "web-frontend", "team": "webops"},
      "ansible_group": "webservers", "ansible_conn": "ssh"},
-    {"name": "rhel9-db-01", "moid": "vm-1006", "host": "esxi03.lab.local", "cluster": "Prod-Cluster-01",
+    {"name": "rhel9-db-01", "moid": "vm-1006", "bios_uuid": "502e71fa-1006-4a8e-b123-aabbccddeef6", "instance_uuid": "502e1006-abcd-4a8e-b123-000000000006", "host": "esxi03.lab.local", "cluster": "Prod-Cluster-01",
      "pool": "Production", "datastore": "vsanDatastore-Prod",
      "cpu": 16, "mem": 65536, "disk": 1000, "os_type": "linux", "os_name": "Red Hat Enterprise Linux 9.4",
      "ip": ["10.0.20.30"], "fqdn": "rhel9-db-01.lab.local", "state": "running", "power": "poweredOn",
      "tags": {"env": "production", "app": "postgresql", "team": "dba"},
      "ansible_group": "databases", "ansible_conn": "ssh"},
-    {"name": "win2022-ad-01", "moid": "vm-1007", "host": "esxi01.lab.local", "cluster": "Prod-Cluster-01",
+    {"name": "win2022-ad-01", "moid": "vm-1007", "bios_uuid": "502e71fa-1007-4a8e-b123-aabbccddeef7", "instance_uuid": "502e1007-abcd-4a8e-b123-000000000007", "host": "esxi01.lab.local", "cluster": "Prod-Cluster-01",
      "pool": "Production", "datastore": "vsanDatastore-Prod",
      "cpu": 4, "mem": 16384, "disk": 120, "os_type": "windows", "os_name": "Windows Server 2022 Datacenter",
      "ip": ["10.0.20.50"], "fqdn": "win2022-ad-01.lab.local", "state": "running", "power": "poweredOn",
      "tags": {"env": "production", "app": "active-directory", "team": "identity"},
      "ansible_group": "windows_domain_controllers", "ansible_conn": "winrm"},
-    {"name": "win2022-iis-01", "moid": "vm-1008", "host": "esxi02.lab.local", "cluster": "Prod-Cluster-01",
+    {"name": "win2022-iis-01", "moid": "vm-1008", "bios_uuid": "502e71fa-1008-4a8e-b123-aabbccddeef8", "instance_uuid": "502e1008-abcd-4a8e-b123-000000000008", "host": "esxi02.lab.local", "cluster": "Prod-Cluster-01",
      "pool": "Production", "datastore": "vsanDatastore-Prod",
      "cpu": 4, "mem": 8192, "disk": 100, "os_type": "windows", "os_name": "Windows Server 2022 Standard",
      "ip": ["10.0.20.51"], "fqdn": "win2022-iis-01.lab.local", "state": "running", "power": "poweredOn",
      "tags": {"env": "production", "app": "iis-web", "team": "webops"},
      "ansible_group": "windows_webservers", "ansible_conn": "winrm"},
     # Staging VMs
-    {"name": "staging-app-01", "moid": "vm-1009", "host": "esxi03.lab.local", "cluster": "Prod-Cluster-01",
+    {"name": "staging-app-01", "moid": "vm-1009", "bios_uuid": "502e71fa-1009-4a8e-b123-aabbccddeef9", "instance_uuid": "502e1009-abcd-4a8e-b123-000000000009", "host": "esxi03.lab.local", "cluster": "Prod-Cluster-01",
      "pool": "Staging", "datastore": "vsanDatastore-Prod",
      "cpu": 2, "mem": 4096, "disk": 60, "os_type": "linux", "os_name": "Red Hat Enterprise Linux 9.2",
      "ip": ["10.0.40.10"], "fqdn": "staging-app-01.lab.local", "state": "running", "power": "poweredOn",
      "tags": {"env": "staging", "app": "web-frontend", "team": "webops"},
      "ansible_group": "staging", "ansible_conn": "ssh"},
-    {"name": "staging-db-01", "moid": "vm-1010", "host": "esxi03.lab.local", "cluster": "Prod-Cluster-01",
+    {"name": "staging-db-01", "moid": "vm-1010", "bios_uuid": "502e71fa-1010-4a8e-b123-aabbccddee10", "instance_uuid": "502e1010-abcd-4a8e-b123-000000000010", "host": "esxi03.lab.local", "cluster": "Prod-Cluster-01",
      "pool": "Staging", "datastore": "vsanDatastore-Prod",
      "cpu": 4, "mem": 8192, "disk": 200, "os_type": "linux", "os_name": "Red Hat Enterprise Linux 9.2",
      "ip": ["10.0.40.11"], "fqdn": "staging-db-01.lab.local", "state": "stopped", "power": "poweredOff",
      "tags": {"env": "staging", "app": "postgresql", "team": "dba"},
      "ansible_group": "staging", "ansible_conn": "ssh"},
     # Dev VMs
-    {"name": "dev-rhel9-01", "moid": "vm-2001", "host": "esxi04.lab.local", "cluster": "Dev-Cluster-01",
+    {"name": "dev-rhel9-01", "moid": "vm-2001", "bios_uuid": "502e71fa-2001-4a8e-b123-aabbccddee11", "instance_uuid": "502e2001-abcd-4a8e-b123-000000000011", "host": "esxi04.lab.local", "cluster": "Dev-Cluster-01",
      "pool": "Development", "datastore": "vsanDatastore-Dev",
      "cpu": 2, "mem": 4096, "disk": 60, "os_type": "linux", "os_name": "Red Hat Enterprise Linux 9.4",
      "ip": ["10.0.50.10"], "fqdn": "dev-rhel9-01.lab.local", "state": "running", "power": "poweredOn",
      "tags": {"env": "development", "team": "platform-eng"},
      "ansible_group": "dev_machines", "ansible_conn": "ssh"},
-    {"name": "dev-fedora-01", "moid": "vm-2002", "host": "esxi04.lab.local", "cluster": "Dev-Cluster-01",
+    {"name": "dev-fedora-01", "moid": "vm-2002", "bios_uuid": "502e71fa-2002-4a8e-b123-aabbccddee12", "instance_uuid": "502e2002-abcd-4a8e-b123-000000000012", "host": "esxi04.lab.local", "cluster": "Dev-Cluster-01",
      "pool": "Development", "datastore": "vsanDatastore-Dev",
      "cpu": 4, "mem": 8192, "disk": 100, "os_type": "linux", "os_name": "Fedora 41",
      "ip": ["10.0.50.11"], "fqdn": "dev-fedora-01.lab.local", "state": "suspended", "power": "suspended",
      "tags": {"env": "development", "team": "platform-eng"},
      "ansible_group": "dev_machines", "ansible_conn": "ssh"},
-    {"name": "template-rhel9-base", "moid": "vm-9001", "host": "esxi01.lab.local", "cluster": "Prod-Cluster-01",
+    {"name": "template-rhel9-base", "moid": "vm-9001", "bios_uuid": "502e71fa-9001-4a8e-b123-aabbccddee13", "instance_uuid": "502e9001-abcd-4a8e-b123-000000000013", "host": "esxi01.lab.local", "cluster": "Prod-Cluster-01",
      "pool": "Production", "datastore": "NFS-ISO-Library",
      "cpu": 2, "mem": 2048, "disk": 40, "os_type": "linux", "os_name": "Red Hat Enterprise Linux 9.4",
      "ip": [], "fqdn": "", "state": "inactive", "power": "poweredOff",
      "tags": {"type": "template", "os": "rhel9"},
      "ansible_group": "", "ansible_conn": ""},
-    {"name": "template-win2022-base", "moid": "vm-9002", "host": "esxi01.lab.local", "cluster": "Prod-Cluster-01",
+    {"name": "template-win2022-base", "moid": "vm-9002", "bios_uuid": "502e71fa-9002-4a8e-b123-aabbccddee14", "instance_uuid": "502e9002-abcd-4a8e-b123-000000000014", "host": "esxi01.lab.local", "cluster": "Prod-Cluster-01",
      "pool": "Production", "datastore": "NFS-ISO-Library",
      "cpu": 2, "mem": 4096, "disk": 60, "os_type": "windows", "os_name": "Windows Server 2022 Standard",
      "ip": [], "fqdn": "", "state": "inactive", "power": "poweredOff",
@@ -221,6 +230,10 @@ class Command(BaseCommand):
         self.stdout.write("Flushing VMware seed data...")
         provider = Provider.objects.filter(name=PROVIDER_NAME).first()
         if provider:
+            sighting_count, _ = ResourceSighting.objects.filter(
+                resource__provider=provider
+            ).delete()
+            self.stdout.write(f"  Deleted {sighting_count} sightings")
             count, _ = Resource.objects.filter(provider=provider).delete()
             self.stdout.write(f"  Deleted {count} resources")
             ResourceRelationship.objects.filter(
@@ -298,6 +311,8 @@ class Command(BaseCommand):
                     provider=provider,
                     name=cluster_data["name"],
                     ems_ref=cluster_data["moid"],
+                    canonical_id=f"vsphere:cluster:{cluster_data['moid']}",
+                    vendor_identifiers={"moid": cluster_data["moid"], "vsphere_type": "ClusterComputeResource"},
                     vendor_type="vSphere Cluster",
                     state="active",
                     region=dc_name,
@@ -314,11 +329,14 @@ class Command(BaseCommand):
 
                 # Hosts
                 for host_data in cluster_data["hosts"]:
+                    smbios_uuid = str(uuid.uuid5(uuid.NAMESPACE_DNS, host_data["serial"]))
                     host = Resource.objects.create(
                         resource_type=rt["hypervisor_host"],
                         provider=provider,
                         name=host_data["name"],
                         ems_ref=host_data["moid"],
+                        canonical_id=smbios_uuid,
+                        vendor_identifiers={"moid": host_data["moid"], "smbios_uuid": smbios_uuid, "serial_number": host_data["serial"]},
                         vendor_type="ESXi Host",
                         state="active",
                         power_state="poweredOn",
@@ -358,6 +376,8 @@ class Command(BaseCommand):
                         provider=provider,
                         name=pool_data["name"],
                         ems_ref=pool_data["moid"],
+                        canonical_id=f"vsphere:respool:{pool_data['moid']}",
+                        vendor_identifiers={"moid": pool_data["moid"], "vsphere_type": "ResourcePool"},
                         vendor_type="vSphere Resource Pool",
                         state="active",
                         region=dc_name,
@@ -386,6 +406,8 @@ class Command(BaseCommand):
                     provider=provider,
                     name=ds_data["name"],
                     ems_ref=ds_data["moid"],
+                    canonical_id=f"vsphere:datastore:{ds_data['moid']}",
+                    vendor_identifiers={"moid": ds_data["moid"], "vsphere_type": "Datastore"},
                     vendor_type="vSphere Datastore",
                     state="active",
                     region=dc_name,
@@ -412,6 +434,12 @@ class Command(BaseCommand):
                 provider=provider,
                 name=vm_data["name"],
                 ems_ref=vm_data["moid"],
+                canonical_id=vm_data.get("bios_uuid", ""),
+                vendor_identifiers={
+                    "moid": vm_data["moid"],
+                    "bios_uuid": vm_data.get("bios_uuid", ""),
+                    "instance_uuid": vm_data.get("instance_uuid", ""),
+                },
                 vendor_type="vSphere VM",
                 state=vm_data["state"],
                 power_state=vm_data["power"],
@@ -473,8 +501,108 @@ class Command(BaseCommand):
         run.resources_created = total
         run.save(update_fields=["resources_found", "resources_created"])
 
+        # Create historical sighting data (simulates 7 previous collection runs)
+        sighting_count = self._create_sighting_history(provider, resources, run)
+
         self.stdout.write("\n" + self.style.SUCCESS(
-            f"Done! Seeded {total} resources and {rels} relationships for '{PROVIDER_NAME}'"
+            f"Done! Seeded {total} resources, {rels} relationships, "
+            f"and {sighting_count} sightings for '{PROVIDER_NAME}'"
         ))
         self.stdout.write(f"  Provider ID: {provider.id}")
         self.stdout.write(f"  Collection Run ID: {run.id}")
+
+    def _create_sighting_history(self, provider, resources, current_run):
+        """
+        Create simulated historical collection runs and resource sightings.
+
+        Generates 7 past collection runs spaced over the last 7 days, each
+        with a sighting for every resource. Introduces realistic variation:
+        state changes (VMs occasionally stop/restart), minor metric drift
+        (CPU usage, memory fluctuation).
+
+        This provides enough data to graph asset history, detect drift,
+        and test the /resources/{id}/history/ and /resources/{id}/sightings/
+        endpoints with meaningful time-series data.
+        """
+        self.stdout.write("\n  Creating sighting history (7 past collection runs)...")
+        now = timezone.now()
+        sighting_count = 0
+
+        for days_ago in range(7, 0, -1):
+            run_time = now - timedelta(days=days_ago, hours=random.randint(0, 12))
+            hist_run = CollectionRun.objects.create(
+                provider=provider,
+                collection_type="full",
+                status="completed",
+                completed_at=run_time + timedelta(minutes=random.randint(2, 15)),
+                collector_version="0.1.0-dev",
+                ansible_collection="vmware.vmware",
+                resources_found=len(resources),
+                resources_created=0,
+                resources_updated=len(resources),
+            )
+            CollectionRun.objects.filter(pk=hist_run.pk).update(started_at=run_time)
+
+            for name, resource in resources.items():
+                state = resource.state
+                power = resource.power_state
+                cpu = resource.cpu_count
+                mem = resource.memory_mb
+                disk = resource.disk_gb
+
+                # Introduce realistic variation for VMs
+                if resource.vendor_type == "vSphere VM" and state == "running":
+                    if random.random() < 0.10:
+                        state = "stopped"
+                        power = "poweredOff"
+                    if cpu and random.random() < 0.15:
+                        cpu = max(1, cpu + random.choice([-2, 2, 4]))
+                    if mem and random.random() < 0.15:
+                        mem = max(1024, mem + random.choice([-2048, 2048, 4096]))
+
+                metrics = {}
+                if resource.vendor_type in ("vSphere VM", "ESXi Host") and state in ("running", "active"):
+                    metrics = {
+                        "cpu_usage_pct": round(random.uniform(5, 85), 1),
+                        "memory_usage_pct": round(random.uniform(20, 90), 1),
+                    }
+                elif resource.vendor_type == "vSphere Datastore":
+                    metrics = {"provisioned_pct": round(random.uniform(40, 80), 1)}
+
+                ResourceSighting.objects.create(
+                    resource=resource, collection_run=hist_run,
+                    state=state, power_state=power or "",
+                    cpu_count=cpu, memory_mb=mem, disk_gb=disk, metrics=metrics,
+                )
+                sighting_count += 1
+
+            Resource.objects.filter(
+                pk__in=[r.pk for r in resources.values()]
+            ).update(seen_count=db_models.F("seen_count") + 1)
+
+            self.stdout.write(
+                f"    Run {8 - days_ago}/7: "
+                f"{run_time.strftime('%Y-%m-%d %H:%M')} "
+                f"\u2014 {len(resources)} sightings"
+            )
+
+        # Sighting for the current (latest) run
+        for name, resource in resources.items():
+            metrics = {}
+            if resource.vendor_type in ("vSphere VM", "ESXi Host") and resource.state in ("running", "active"):
+                metrics = {
+                    "cpu_usage_pct": round(random.uniform(5, 85), 1),
+                    "memory_usage_pct": round(random.uniform(20, 90), 1),
+                }
+            elif resource.vendor_type == "vSphere Datastore":
+                metrics = {"provisioned_pct": round(random.uniform(40, 80), 1)}
+            ResourceSighting.objects.create(
+                resource=resource, collection_run=current_run,
+                state=resource.state, power_state=resource.power_state or "",
+                cpu_count=resource.cpu_count, memory_mb=resource.memory_mb,
+                disk_gb=resource.disk_gb, metrics=metrics,
+            )
+            sighting_count += 1
+
+        self.stdout.write(f"    Run 8/8: current \u2014 {len(resources)} sightings (latest)")
+        return sighting_count

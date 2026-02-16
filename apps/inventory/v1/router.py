@@ -9,7 +9,9 @@ from apps.inventory.v1.viewsets import (
     ResourceRelationshipViewSet,
     ResourceTypeViewSet,
     ResourceViewSet,
+    ResourceSightingViewSet,
     VendorTypeMappingViewSet,
+    PropertyDefinitionViewSet,
 )
 
 router = DefaultRouter()
@@ -24,3 +26,5 @@ router.register(r"resource-relationships", ResourceRelationshipViewSet, basename
 router.register(r"resource-categories", ResourceCategoryViewSet, basename="resourcecategory")
 router.register(r"resource-types", ResourceTypeViewSet, basename="resourcetype")
 router.register(r"vendor-type-mappings", VendorTypeMappingViewSet, basename="vendortypemapping")
+router.register(r"property-definitions", PropertyDefinitionViewSet, basename="propertydefinition")
+router.register(r"resource-sightings", ResourceSightingViewSet, basename="resourcesighting")
