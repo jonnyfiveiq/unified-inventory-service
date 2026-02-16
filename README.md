@@ -33,14 +33,45 @@ that connect them:
 
 ```
 Provider
- └── CollectionRun          (one provider → many runs)
- └── Resource               (one provider → many resources)
+ └── CollectionRun              (one provider → many runs)
+ └── Resource                   (one provider → many resources)
       ├── resource_type → ResourceType → ResourceCategory
-      └── ResourceRelationship (source → target)
-              types: runs_on, attached_to, member_of, part_of, manages
+      ├── ResourceRelationship  (source → target)
+      │       types: runs_on, attached_to, member_of, part_of, manages
+      └── ResourceSighting      (one resource → many sightings)
+              point-in-time observation per collection run
 
 ResourceType ← VendorTypeMapping (maps vendor-specific names → canonical types)
 ```
+
+### Asset Identity and Tracking
+
+Every resource carries a **canonical_id** — a stable cross-provider fingerprint
+that persists across collection runs and even across different providers
+observing the same physical or virtual asset. For compute resources this is
+typically the SMBIOS UUID, which VMware, AWS EC2 and bare-metal IPMI all report.
+Non-compute resources (datastores, clusters, pools) use the most stable
+vendor-native identifier.
+
+The **vendor_identifiers** JSONB field stores all vendor-specific IDs as
+key-value pairs (e.g. `moid`, `bios_uuid`, `instance_uuid` for VMware;
+`instance_id`, `smbios_uuid` for AWS EC2). This allows cross-referencing when
+the same asset appears through multiple discovery paths.
+
+Tracking fields on each resource:
+
+| Field | Description |
+|---|---|
+| `canonical_id` | Stable fingerprint (SMBIOS UUID, vendor instance ID, MOID) |
+| `vendor_identifiers` | All vendor-native IDs as JSONB key-value pairs |
+| `first_discovered_at` | Timestamp of first collection run that found this resource |
+| `last_seen_at` | Timestamp of most recent collection run that observed it |
+| `seen_count` | Number of collection runs that have observed this resource |
+
+Each collection run also creates a **ResourceSighting** — a lightweight
+point-in-time snapshot capturing the resource state, compute metrics, and
+optional type-specific metrics. Sightings enable historical graphing, drift
+detection, and compliance auditing without bloating the Resource record.
 
 The taxonomy (categories, types and vendor mappings) is seeded by migration and
 covers 15 categories, 82 resource types and 20+ VMware vSphere mappings.
@@ -102,8 +133,8 @@ command to the dispatcherd worker and marks the run as `canceled`.
 | `GET` | `/resources/{id}/` | Resource detail |
 
 **Filters:** `provider`, `resource_type`, `state`, `region`, `os_type`, `organization`
-**Search:** `name`, `ems_ref`, `fqdn`, `vendor_type`
-**Ordering:** `name`, `state`, `first_discovered_at`, `last_seen_at`
+**Search:** `name`, `ems_ref`, `canonical_id`, `fqdn`, `vendor_type`
+**Ordering:** `name`, `state`, `first_discovered_at`, `last_seen_at`, `seen_count`
 
 Resources are created by collection tasks, not directly via the API.
 
@@ -113,6 +144,68 @@ GET /api/inventory/v1/resources/?search=esxi
 GET /api/inventory/v1/resources/?provider=<uuid>
 GET /api/inventory/v1/resources/?os_type=linux
 GET /api/inventory/v1/resources/?region=Lab-DC1
+GET /api/inventory/v1/resources/?search=502e71fa   # search by SMBIOS UUID fragment
+```
+
+#### Nested resource endpoints — sightings and history
+
+Each resource exposes two nested endpoints for historical tracking and
+dashboard integration:
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/resources/{id}/sightings/` | Paginated sighting history for a single resource |
+| `GET` | `/resources/{id}/history/` | Aggregated history summary for graphing and dashboards |
+
+**Sightings** (`/resources/{id}/sightings/`) returns the full list of
+point-in-time snapshots captured during collection runs, ordered newest first.
+Use this to build historical graphs of state changes, compute metrics drift,
+and compliance auditing for a single asset over time.
+
+**Filters:** `seen_after`, `seen_before`, `state`
+
+```
+GET /api/inventory/v1/resources/{id}/sightings/
+GET /api/inventory/v1/resources/{id}/sightings/?seen_after=2025-01-01T00:00:00Z
+GET /api/inventory/v1/resources/{id}/sightings/?state=running
+GET /api/inventory/v1/resources/{id}/sightings/?seen_after=2025-01-01&seen_before=2025-02-01
+```
+
+**History** (`/resources/{id}/history/`) returns an aggregated summary designed
+for dashboard widgets and at-a-glance resource views. The response includes:
+
+- **identity** — `canonical_id`, `vendor_identifiers`, `ems_ref`
+- **tracking** — `first_discovered_at`, `last_seen_at`, `seen_count`
+- **timeline** — ordered list of sighting snapshots (state, power_state, cpu, memory, disk, metrics)
+- **summary** — aggregated stats: avg/min/max CPU, memory and disk across all sightings, distinct states observed, total sighting count
+
+```
+GET /api/inventory/v1/resources/{id}/history/
+```
+
+Example response (abbreviated):
+
+```json
+{
+    "identity": {
+        "canonical_id": "502e71fa-...",
+        "vendor_identifiers": {"moid": "vm-101", "bios_uuid": "502e71fa-..."}
+    },
+    "tracking": {
+        "first_discovered_at": "2025-01-15T08:30:00Z",
+        "last_seen_at": "2025-02-14T14:22:00Z",
+        "seen_count": 7
+    },
+    "summary": {
+        "total_sightings": 7,
+        "states_observed": ["running", "stopped"],
+        "cpu": {"avg": 4.0, "min": 4, "max": 4},
+        "memory_mb": {"avg": 16384.0, "min": 16384, "max": 16384}
+    },
+    "timeline": [
+        {"seen_at": "2025-01-15T08:30:00Z", "state": "running", "cpu_count": 4, "memory_mb": 16384}
+    ]
+}
 ```
 
 ### Resource Relationships — read-only
@@ -124,6 +217,28 @@ GET /api/inventory/v1/resources/?region=Lab-DC1
 
 **Filters:** `relationship_type`, `source`, `target`
 **Ordering:** `relationship_type`
+
+### Resource Sightings — read-only historical data
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/resource-sightings/` | List sighting history (filterable) |
+| `GET` | `/resource-sightings/{id}/` | Sighting detail |
+
+**Filters:** `resource`, `collection_run`, `state`, `seen_after`, `seen_before`
+**Search:** `resource__name`
+**Ordering:** `seen_at`, `state`, `cpu_count`, `memory_mb`
+
+Resource sightings are created automatically by collectors during collection
+runs. Each sighting is a point-in-time snapshot of a resource state, enabling
+historical graphing, drift detection and compliance auditing. Use the
+`seen_after` / `seen_before` date-range filters to query a time window.
+
+```
+GET /api/inventory/v1/resource-sightings/?resource=<uuid>
+GET /api/inventory/v1/resource-sightings/?resource=<uuid>&seen_after=2025-01-01T00:00:00Z
+GET /api/inventory/v1/resource-sightings/?state=running
+```
 
 ### Taxonomy — read-only reference data
 
@@ -184,6 +299,9 @@ management, RBAC, activity streams and service discovery.
 | `/collection-runs/` | Read-only | GET | + POST cancel action |
 | `/resources/` | Read-only | GET | Created by collection tasks |
 | `/resource-relationships/` | Read-only | GET | Created by collection tasks |
+| `/resource-sightings/` | Read-only | GET | Historical observation snapshots |
+| `/resources/{id}/sightings/` | Read-only | GET | Nested sighting history per resource |
+| `/resources/{id}/history/` | Read-only | GET | Aggregated history for dashboards |
 | `/resource-categories/` | Read-only | GET | Seeded by migration |
 | `/resource-types/` | Read-only | GET | Seeded by migration |
 | `/vendor-type-mappings/` | Read-only | GET | Seeded by migration |
@@ -222,6 +340,7 @@ environment for development and testing:
 - 2 resource pools (Production, Staging)
 - 14 VMs — AAP stack, RHEL web/db servers, Windows AD/IIS, dev boxes, templates
 - Full relationship graph (runs_on, attached_to, member_of, part_of)
+- Asset identity tracking (SMBIOS UUIDs, vendor identifiers, sighting history)
 
 ```bash
 python manage.py seed_vmware_data          # seed
