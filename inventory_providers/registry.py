@@ -1,26 +1,34 @@
 """Provider plugin registry — discovery, loading, and lifecycle management.
 
-The registry supports three loading mechanisms:
+The registry supports four loading mechanisms:
 
-1. **Entry-point providers** (primary mechanism for external packages)::
+1. **Plugins directory** (primary mechanism for installed plugins) —
+   scans ``plugins/`` for vendor/type directories containing a
+   ``provider.py`` with a BaseProvider subclass.
+
+2. **Entry-point providers** (for pip-installed packages)::
 
        # In a partner's pyproject.toml:
        [project.entry-points."inventory_providers"]
        my_cloud = "my_package.provider:MyCloudProvider"
 
-2. **Runtime registration** — programmatic via ``registry.register()``
+3. **Runtime registration** — programmatic via ``registry.register()``
 
-3. **Module scanning** — ``registry.load_module(module)`` to scan a
+4. **Module scanning** — ``registry.load_module(module)`` to scan a
    module for BaseProvider subclasses
 
 This module has no Django dependency. The inventory service app layer
 calls ``registry.apply_filter()`` at startup to enforce settings-based
 enable/disable.
 """
+
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import logging
+import sys
+from pathlib import Path
 from typing import Any, Type
 
 from .base import BaseProvider, ProviderCredential
@@ -42,6 +50,7 @@ class ProviderRegistry:
     def __init__(self):
         self._providers: dict[str, Type[BaseProvider]] = {}
         self._discovered = False
+        self.plugins_dir: Path | None = None
 
     @property
     def providers(self) -> dict[str, Type[BaseProvider]]:
@@ -76,7 +85,6 @@ class ProviderRegistry:
             )
 
         key = provider_class.provider_key()
-
         if key in self._providers:
             existing = self._providers[key]
             if existing is not provider_class:
@@ -103,14 +111,17 @@ class ProviderRegistry:
 
     def discover(self) -> None:
         """
-        Discover and load all provider plugins from entry points.
+        Discover and load all provider plugins.
 
+        Scans the plugins directory (if set) and entry points.
         Called automatically on first access to ``.providers``.
         Safe to call multiple times.
         """
         if self._discovered:
             return
 
+        if self.plugins_dir:
+            self._discover_plugins_dir()
         self._discover_entrypoints()
         self._discovered = True
 
@@ -119,6 +130,80 @@ class ProviderRegistry:
             len(self._providers),
             ", ".join(sorted(self._providers.keys())) or "(none)",
         )
+
+    def _discover_plugins_dir(self) -> None:
+        """
+        Scan the plugins directory for provider plugin packages.
+
+        Expected layout::
+
+            plugins/
+              vmware/
+                vcenter/
+                  provider.py   <- must contain a BaseProvider subclass
+                  manifest.yml  <- plugin metadata
+              cisco/
+                nxos/
+                  provider.py
+
+        Each vendor/type directory with a provider.py is loaded as a
+        module and scanned for BaseProvider subclasses.
+        """
+        if not self.plugins_dir or not self.plugins_dir.is_dir():
+            return
+
+        for vendor_dir in sorted(self.plugins_dir.iterdir()):
+            if not vendor_dir.is_dir() or vendor_dir.name.startswith((".", "_")):
+                continue
+            for plugin_dir in sorted(vendor_dir.iterdir()):
+                if not plugin_dir.is_dir() or plugin_dir.name.startswith((".", "_")):
+                    continue
+                provider_py = plugin_dir / "provider.py"
+                if not provider_py.exists():
+                    logger.debug(
+                        "Skipping %s/%s — no provider.py",
+                        vendor_dir.name, plugin_dir.name,
+                    )
+                    continue
+                try:
+                    self._load_provider_from_path(provider_py, vendor_dir.name, plugin_dir.name)
+                except Exception:
+                    logger.exception(
+                        "Failed to load provider from %s/%s",
+                        vendor_dir.name, plugin_dir.name,
+                    )
+
+    def _load_provider_from_path(
+        self, provider_py: Path, vendor: str, plugin_type: str,
+    ) -> None:
+        """Load a provider module from a file path and register any BaseProvider subclasses."""
+        module_name = f"inventory_providers_plugin_{vendor}_{plugin_type}"
+
+        # Add the plugin directory to sys.path so relative imports work
+        plugin_dir_str = str(provider_py.parent)
+        if plugin_dir_str not in sys.path:
+            sys.path.insert(0, plugin_dir_str)
+
+        spec = importlib.util.spec_from_file_location(module_name, provider_py)
+        if spec is None or spec.loader is None:
+            logger.warning("Cannot create module spec for %s", provider_py)
+            return
+
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+
+        count = self.load_module(module)
+        if count:
+            logger.info(
+                "Loaded %d provider(s) from plugins/%s/%s",
+                count, vendor, plugin_type,
+            )
+        else:
+            logger.warning(
+                "No BaseProvider subclasses found in plugins/%s/%s/provider.py",
+                vendor, plugin_type,
+            )
 
     def _discover_entrypoints(self) -> None:
         """Load providers from the ``inventory_providers`` entry point group."""
@@ -207,7 +292,6 @@ class ProviderRegistry:
 
         module = importlib.import_module(module_path)
         cls = getattr(module, class_name)
-
         if not isinstance(cls, type) or not issubclass(cls, BaseProvider):
             raise TypeError(f"{dotted_path} is not a BaseProvider subclass")
 
@@ -281,7 +365,6 @@ class ProviderRegistry:
         vendor = getattr(provider_model, "vendor", "")
         ptype = getattr(provider_model, "provider_type", "")
         cls = self.get(vendor, ptype)
-
         if cls is None:
             available = ", ".join(sorted(self._providers.keys())) or "(none)"
             raise ValueError(
@@ -300,6 +383,7 @@ class ProviderRegistry:
         """Clear the registry. Primarily for testing."""
         self._providers.clear()
         self._discovered = False
+        # Note: plugins_dir is preserved across reset
 
 
 # Module-level singleton

@@ -48,3 +48,8 @@ db.sqlite3
 # Dispatcher socket
 *.sock
 
+
+# Provider plugins (installed by customers, not committed)
+plugins/*
+!plugins/README.md
+!plugins/.gitkeep

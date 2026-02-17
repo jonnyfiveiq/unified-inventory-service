@@ -66,6 +66,10 @@ from dynaconf.loaders import execute_instance_hooks
 BASE_DIR = Path(__file__).resolve().parent.parent
 """Build paths inside the project like this: BASE_DIR / 'subdir'"""
 
+# Provider plugins directory — customers unpack plugin tarballs here
+PLUGINS_DIR = BASE_DIR / 'plugins'
+
+
 SECRET_KEY = "django-insecure-k^a&fnx3ulh*d2nl%q680o+xkr^5o+c$5=lzo7vd-7=#qmadg("  # noqa
 """SECURITY WARNING: keep the secret key used in production secret!"""
 
@@ -251,6 +255,9 @@ MEDIA_URL = "media/"
 
 MEDIA_ROOT = BASE_DIR / "media"
 """Root directory for media files"""
+
+PROVIDER_PLUGINS_DIR = BASE_DIR / "plugins"
+"""Directory where provider plugin packages are unpacked and loaded from."""
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 """Default primary key field type"""
