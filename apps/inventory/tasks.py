@@ -135,12 +135,14 @@ def _do_collection(run) -> dict:
     Delegate collection to the appropriate provider plugin.
 
     Looks up the registered provider for this run's provider model,
-    instantiates it with resolved credentials, and delegates the
-    full collection lifecycle to it.
+    resolves credentials from the Provider record, and delegates
+    the full collection lifecycle to the plugin.
     """
     from inventory_providers import registry
+    from inventory_providers.base import ProviderCredential
 
     provider_model = run.provider
+    config = provider_model.connection_config or {}
 
     logger.info(
         "Collecting from provider=%s vendor=%s type=%s endpoint=%s",
@@ -150,8 +152,18 @@ def _do_collection(run) -> dict:
         provider_model.endpoint,
     )
 
-    # Instantiate the provider plugin (resolves credentials automatically)
-    provider_instance = registry.instantiate(provider_model)
+    # Resolve credentials from the Provider model.
+    # TODO: replace with proper credential resolver (AAP vault, external
+    # secret store) once the credential service integration is built.
+    credential = ProviderCredential(
+        hostname=provider_model.endpoint,
+        username=config.get("username", ""),
+        password=config.get("password", ""),
+        port=config.get("port", 443),
+        extra={k: v for k, v in config.items() if k not in ("username", "password", "port")},
+    )
+
+    provider_instance = registry.instantiate(provider_model, credential)
 
     # Update collection run metadata
     run.collector_version = getattr(provider_instance, "__version__", "0.1.0")
