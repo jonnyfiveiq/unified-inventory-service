@@ -138,7 +138,7 @@ def _do_collection(run) -> dict:
     instantiates it with resolved credentials, and delegates the
     full collection lifecycle to it.
     """
-    from apps.inventory.providers import registry
+    from inventory_providers import registry
 
     provider_model = run.provider
 

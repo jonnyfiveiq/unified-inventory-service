@@ -7,12 +7,18 @@ from .taxonomy import (
     VendorTypeMappingSerializer,
     PropertyDefinitionSerializer,
 )
+from .provider_plugin import (  # noqa: F401
+    ProviderPluginSerializer,
+    ProviderPluginTestResultSerializer,
+)
 
 __all__ = [
     "CollectionRunCancelSerializer",
     "CollectionRunSerializer",
     "ProviderCollectSerializer",
     "ProviderSerializer",
+    "ProviderPluginSerializer",
+    "ProviderPluginTestResultSerializer",
     "ResourceCategorySerializer",
     "ResourceRelationshipSerializer",
     "ResourceSerializer",
@@ -21,9 +27,3 @@ __all__ = [
     "VendorTypeMappingSerializer",
     "PropertyDefinitionSerializer",
 ]
-from .provider_plugin import (  # noqa: F401
-    AggregatedDependenciesSerializer,
-    ProviderPluginDetailSerializer,
-    ProviderPluginSerializer,
-    ProviderPluginTestSerializer,
-)

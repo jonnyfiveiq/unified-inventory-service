@@ -300,8 +300,8 @@ Each definition includes:
 
 ### Provider Plugins — read-only registry API
 
-The provider plugin endpoints expose the runtime plugin registry. These are
-**not** model-backed — the data comes from the in-memory registry that
+The provider plugin endpoints expose the runtime plugin registry from the
+external `inventory_providers` package. These are **not** model-backed — the data comes from the in-memory registry that
 discovers plugins at startup from built-in packages, Python entry points,
 and runtime registrations.
 
@@ -309,7 +309,6 @@ and runtime registrations.
 |---|---|---|
 | `GET` | `/provider-plugins/` | List all discovered plugins with manifest summaries |
 | `GET` | `/provider-plugins/{vendor:type}/` | Plugin detail with dependency file contents |
-| `GET` | `/provider-plugins/dependencies/` | Aggregated requirements across all plugins |
 | `POST` | `/provider-plugins/{vendor:type}/test/` | Test connectivity for configured instances |
 | `POST` | `/provider-plugins/refresh/` | Force re-discovery without service restart |
 
@@ -322,7 +321,6 @@ contents of dependency files (requirements.txt, requirements.yml, bindep.txt).
 GET /api/inventory/v1/provider-plugins/
 GET /api/inventory/v1/provider-plugins/vmware:vcenter/
 GET /api/inventory/v1/provider-plugins/vmware:vcenter/test/
-GET /api/inventory/v1/provider-plugins/dependencies/
 POST /api/inventory/v1/provider-plugins/refresh/
 ```
 
@@ -389,7 +387,6 @@ management, RBAC, activity streams and service discovery.
 | `/provider-plugins/` | Read-only | GET | Plugin registry (not model-backed) |
 | `/provider-plugins/{vendor:type}/` | Read-only | GET | Plugin detail + dependencies |
 | `/provider-plugins/{vendor:type}/test/` | Action | POST | Test connectivity per instance |
-| `/provider-plugins/dependencies/` | Read-only | GET | Aggregated deps across plugins |
 | `/provider-plugins/refresh/` | Action | POST | Force re-discovery |
 | `/resource-categories/` | Read-only | GET | Seeded by migration |
 | `/resource-types/` | Read-only | GET | Seeded by migration |
