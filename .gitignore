@@ -53,3 +53,9 @@ db.sqlite3
 plugins/*
 !plugins/README.md
 !plugins/.gitkeep
+
+# Upload artifacts
+*.tar.gz
+
+# Test output
+test_inventory_seeding.txt

@@ -2,10 +2,10 @@
 
 These serializers expose the plugin discovery layer — which provider
 classes are available and their metadata — as a read-only REST API.
+
 The data comes from the external inventory_providers package, not
 from Django models.
 """
-
 from rest_framework import serializers
 
 
@@ -15,6 +15,7 @@ class ProviderPluginSerializer(serializers.Serializer):
 
     Maps to the dict returned by BaseProvider.metadata().
     """
+
     key = serializers.CharField(help_text="Unique key: vendor:provider_type")
     vendor = serializers.CharField()
     provider_type = serializers.CharField()
@@ -31,8 +32,20 @@ class ProviderPluginSerializer(serializers.Serializer):
 
 class ProviderPluginTestResultSerializer(serializers.Serializer):
     """Result of a provider connectivity test."""
+
     provider_id = serializers.UUIDField()
     provider_name = serializers.CharField()
     plugin_key = serializers.CharField()
     success = serializers.BooleanField()
     message = serializers.CharField()
+
+
+class ProviderPluginUploadSerializer(serializers.Serializer):
+    """Validates the upload request for a provider plugin archive."""
+
+    plugin = serializers.FileField(
+        help_text=(
+            "Plugin archive file (.tar.gz, .tgz, or .zip). "
+            "Must contain manifest.yml and provider.py at minimum."
+        ),
+    )

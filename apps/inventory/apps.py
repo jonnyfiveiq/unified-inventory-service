@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 from django.apps import AppConfig
 
@@ -18,20 +19,22 @@ class InventoryConfig(AppConfig):
         # is fully populated.
         try:
             from apps.inventory.dispatcher import setup_dispatcher
+
             setup_dispatcher()
         except Exception:
             logger.debug("dispatcherd setup deferred — database may not be available yet")
 
         # Point the provider plugin registry at the plugins/ directory
-        # so it can discover unpacked provider tarballs alongside
-        # pip-installed entry-point plugins.
+        # so it can discover unpacked provider plugins on startup.
+        # The PVC mount at /app/plugins ensures uploaded plugins persist
+        # across pod restarts.
         try:
             from django.conf import settings
             from inventory_providers import registry as provider_registry
 
-            plugins_dir = getattr(settings, "PLUGINS_DIR", None)
-            if plugins_dir:
-                provider_registry.registry.plugins_dir = plugins_dir
-                logger.info("Provider plugins directory: %s", plugins_dir)
+            plugins_dir = Path(getattr(settings, "PLUGINS_DIR", settings.BASE_DIR / "plugins"))
+            plugins_dir.mkdir(parents=True, exist_ok=True)
+            provider_registry.registry.plugins_dir = plugins_dir
+            logger.info("Provider plugins directory: %s", plugins_dir)
         except Exception:
             logger.debug("Provider registry setup deferred")
