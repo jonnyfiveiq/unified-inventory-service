@@ -298,6 +298,54 @@ Each definition includes:
 - **vendor_scope** — if set, only applies to a specific vendor
 - **example_value** — documentation example
 
+### Provider Plugins — read-only registry API
+
+The provider plugin endpoints expose the runtime plugin registry. These are
+**not** model-backed — the data comes from the in-memory registry that
+discovers plugins at startup from built-in packages, Python entry points,
+and runtime registrations.
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/provider-plugins/` | List all discovered plugins with manifest summaries |
+| `GET` | `/provider-plugins/{vendor:type}/` | Plugin detail with dependency file contents |
+| `GET` | `/provider-plugins/dependencies/` | Aggregated requirements across all plugins |
+| `POST` | `/provider-plugins/{vendor:type}/test/` | Test connectivity for configured instances |
+| `POST` | `/provider-plugins/refresh/` | Force re-discovery without service restart |
+
+The list endpoint returns each discovered plugin with its manifest metadata,
+supported resource types, and the number of Provider model instances currently
+configured to use it. The detail endpoint additionally includes the raw
+contents of dependency files (requirements.txt, requirements.yml, bindep.txt).
+
+```
+GET /api/inventory/v1/provider-plugins/
+GET /api/inventory/v1/provider-plugins/vmware:vcenter/
+GET /api/inventory/v1/provider-plugins/vmware:vcenter/test/
+GET /api/inventory/v1/provider-plugins/dependencies/
+POST /api/inventory/v1/provider-plugins/refresh/
+```
+
+The `test` action instantiates the plugin for each enabled Provider instance
+and calls `validate_connection()`, returning a per-instance pass/fail result.
+The `refresh` action resets and re-scans the registry — useful after pip
+installing a new external provider package without restarting the service.
+
+#### Pluggable provider architecture
+
+Provider plugins are discovered from three sources (in order of precedence):
+
+1. **Built-in** — Python packages in `apps/inventory/providers/` that subclass
+   `BaseProvider`. Discovered automatically at startup.
+2. **Entry-point** — External packages declaring the
+   `inventory_service.providers` entry point group in pyproject.toml.
+3. **Runtime** — Programmatic registration via `registry.register()`.
+
+Each provider package may include Ansible collection-compatible dependency
+files (requirements.txt, requirements.yml, bindep.txt,
+meta/execution-environment.yml). The registry introspects these for the
+`/dependencies/` endpoint and for execution environment builds.
+
 ### Platform endpoints (via django-ansible-base)
 
 These endpoints are provided by the framework and cover org/user/team
@@ -338,6 +386,11 @@ management, RBAC, activity streams and service discovery.
 | `/resources/{id}/sightings/` | Read-only | GET | Nested sighting history per resource |
 | `/resources/{id}/history/` | Read-only | GET | Aggregated history for dashboards |
 | `/property-definitions/` | Read-only | GET | Schema contract for Resource.properties |
+| `/provider-plugins/` | Read-only | GET | Plugin registry (not model-backed) |
+| `/provider-plugins/{vendor:type}/` | Read-only | GET | Plugin detail + dependencies |
+| `/provider-plugins/{vendor:type}/test/` | Action | POST | Test connectivity per instance |
+| `/provider-plugins/dependencies/` | Read-only | GET | Aggregated deps across plugins |
+| `/provider-plugins/refresh/` | Action | POST | Force re-discovery |
 | `/resource-categories/` | Read-only | GET | Seeded by migration |
 | `/resource-types/` | Read-only | GET | Seeded by migration |
 | `/vendor-type-mappings/` | Read-only | GET | Seeded by migration |

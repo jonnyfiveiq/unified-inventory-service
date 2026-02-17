@@ -21,3 +21,9 @@ __all__ = [
     "VendorTypeMappingSerializer",
     "PropertyDefinitionSerializer",
 ]
+from .provider_plugin import (  # noqa: F401
+    AggregatedDependenciesSerializer,
+    ProviderPluginDetailSerializer,
+    ProviderPluginSerializer,
+    ProviderPluginTestSerializer,
+)

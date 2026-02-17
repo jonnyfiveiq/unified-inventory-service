@@ -3,6 +3,7 @@
 from rest_framework.routers import DefaultRouter
 
 from apps.inventory.v1.viewsets import (
+    ProviderPluginViewSet,
     CollectionRunViewSet,
     ProviderViewSet,
     ResourceCategoryViewSet,
@@ -28,3 +29,6 @@ router.register(r"resource-types", ResourceTypeViewSet, basename="resourcetype")
 router.register(r"vendor-type-mappings", VendorTypeMappingViewSet, basename="vendortypemapping")
 router.register(r"property-definitions", PropertyDefinitionViewSet, basename="propertydefinition")
 router.register(r"resource-sightings", ResourceSightingViewSet, basename="resourcesighting")
+
+# Provider plugin registry
+router.register(r"provider-plugins", ProviderPluginViewSet, basename="providerplugin")

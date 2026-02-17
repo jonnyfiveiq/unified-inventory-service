@@ -10,6 +10,7 @@ dependencies = [
     "django-ansible-base[rest_filters,jwt_consumer,resource_registry,rbac,feature_flags,api_documentation]",
     "dispatcherd[pg_notify] @ git+https://github.com/ansible/dispatcherd",
     "django-filter>=25.1",
+    "inventory-providers",
 ]
 
 [dependency-groups]
@@ -94,9 +95,7 @@ help = "Clean local caches for mypy, pytest, python"
 script = "poethepoet.scripts:rm('.mypy_cache', '.pytest_cache', './**/__pycache__', './**/*.pyc')"
 
 [tool.poe.tasks.validate]
-shell = """
-python -c "
-import yaml
+shell = """python -c "import yaml
 with open('.copier-answers.yml') as f:
     d = yaml.safe_load(f)
     branch = d.get('src_branch', '')
@@ -105,18 +104,14 @@ with open('.copier-answers.yml') as f:
     if Path(src).is_dir():
         print(f'uvx --refresh --from {src} platform-service-framework validate')
     else:
-        print(f'uvx --refresh git+{src}@{branch} validate')
-" | sh
-"""
+        print(f'uvx --refresh git+{src}@{branch} validate')" | sh"""
 
 [tool.poe.tasks.update]
 help = "Update the project from template (use --core to also update core templates)"
 args = [
   { name = "core", help = "Also update core templates", type = "boolean" }
 ]
-shell = """
-python -c "
-import yaml
+shell = """python -c "import yaml
 import os
 with open('.copier-answers.yml') as f:
     d = yaml.safe_load(f)
@@ -128,15 +123,18 @@ with open('.copier-answers.yml') as f:
     if Path(src).is_dir():
         print(f'uvx --refresh --from {src} platform-service-framework update{core_flag}')
     else:
-        print(f'uvx --refresh git+{src}@{branch} update{core_flag}')
-" | sh
-"""
+        print(f'uvx --refresh git+{src}@{branch} update{core_flag}')" | sh"""
 
 [tool.uv.sources]
 django-ansible-base = { git = "https://github.com/ansible/django-ansible-base", rev = "devel" }
 dispatcherd = { git = "https://github.com/ansible/dispatcherd" }
+inventory-providers = { path = "../is-providers" }
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["inventory_service*", "apps*"]
 exclude = ["tests*"]
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"

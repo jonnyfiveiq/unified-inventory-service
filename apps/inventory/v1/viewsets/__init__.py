@@ -20,3 +20,4 @@ __all__ = [
 ]
 
 from .sighting import ResourceSightingViewSet  # noqa: F401
+from .provider_plugin import ProviderPluginViewSet  # noqa: F401

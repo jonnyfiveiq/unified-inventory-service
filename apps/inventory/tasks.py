@@ -1,19 +1,15 @@
-"""
-Dispatcherd task definitions for inventory collection.
+"""Dispatcherd task definitions for inventory collection.
 
 Tasks are registered via the ``@task()`` decorator so that they can be
 submitted from any process that has called ``dispatcherd.config.setup()``,
 and executed by the dispatcherd worker service.
 
-The actual collection logic (calling Ansible modules, parsing provider
-responses, upserting Resource records) will be implemented in collector
-plugins later.  The task scaffolding here handles the full lifecycle:
+Collection is delegated to pluggable provider classes discovered via
+the provider registry. The task scaffolding here handles the full lifecycle:
 
-    pending → running → completed | failed | canceled
+    pending -> running -> completed | failed | canceled
 """
-
 import logging
-import time
 import traceback
 
 import django
@@ -21,47 +17,53 @@ from django.utils import timezone
 
 logger = logging.getLogger("apps.inventory.tasks")
 
+
 # ---------------------------------------------------------------------------
 # Dispatcherd registration — guarded so the module is still importable
 # when dispatcherd is not installed (e.g. during migrations).
 # ---------------------------------------------------------------------------
+
 try:
+    from dispatcherd.config import setup as _dispatcherd_setup
     from dispatcherd.publish import task
 
-    _HAS_DISPATCHER = True
+    _dispatcherd_setup(
+        settings_module="inventory_service.settings",
+        service_name="inventory",
+    )
 except ImportError:
-    _HAS_DISPATCHER = False
+    logger.debug("dispatcherd not available — tasks will not be registerable")
 
-    # Provide a no-op decorator so the function definitions below don't fail
-    def task(**kwargs):  # type: ignore[no-redef]
+    def task(*args, **kwargs):
+        """No-op decorator when dispatcherd is not installed."""
         def wrapper(fn):
             return fn
         return wrapper
 
 
 def _ensure_django():
-    """Ensure Django is set up in the worker subprocess."""
+    """Ensure Django is set up (idempotent)."""
     try:
-        from django.conf import settings
-        _ = settings.DATABASES  # noqa: F841 — force lazy setup
-    except Exception:
         django.setup()
+    except RuntimeError:
+        pass
 
 
 # ---------------------------------------------------------------------------
-# Collection task
+# Tasks
 # ---------------------------------------------------------------------------
 
-@task(queue="inventory_tasks", decorate=False)
+
+@task(queue="inventory")
 def run_collection(collection_run_id: str) -> dict:
     """
-    Execute an inventory collection for the given CollectionRun.
+    Execute an inventory collection run.
 
-    This is dispatched as a background task via dispatcherd.  The function:
+    This is dispatched as a background task via dispatcherd. The function:
 
     1. Marks the CollectionRun as ``running``
-    2. Resolves the provider and determines which resource types to collect
-    3. Executes the collection (placeholder — real collectors come later)
+    2. Resolves the provider via the plugin registry
+    3. Delegates collection to the provider plugin
     4. Updates statistics and marks as ``completed`` or ``failed``
 
     Args:
@@ -130,34 +132,32 @@ def run_collection(collection_run_id: str) -> dict:
 
 def _do_collection(run) -> dict:
     """
-    Placeholder for real collection logic.
+    Delegate collection to the appropriate provider plugin.
 
-    In a real implementation this would:
-    - Look up the provider's vendor and determine the Ansible collection to use
-    - Resolve credentials from credential_ref
-    - Call the appropriate collector plugin (AWS, Azure, VMware, etc.)
-    - Upsert Resource records, handle deletes for missing resources
-    - Return statistics
-
-    For now, simulates a short collection run.
+    Looks up the registered provider for this run's provider model,
+    instantiates it with resolved credentials, and delegates the
+    full collection lifecycle to it.
     """
-    provider = run.provider
+    from apps.inventory.providers import registry
+
+    provider_model = run.provider
+
     logger.info(
         "Collecting from provider=%s vendor=%s type=%s endpoint=%s",
-        provider.name,
-        provider.vendor,
-        provider.provider_type,
-        provider.endpoint,
+        provider_model.name,
+        provider_model.vendor,
+        provider_model.provider_type,
+        provider_model.endpoint,
     )
 
-    # Simulate work — replace with real collector dispatch
-    time.sleep(2)
+    # Instantiate the provider plugin (resolves credentials automatically)
+    provider_instance = registry.instantiate(provider_model)
 
-    return {
-        "found": 0,
-        "created": 0,
-        "updated": 0,
-        "removed": 0,
-        "unchanged": 0,
-        "message": f"Placeholder collection for {provider.vendor}/{provider.provider_type} — no collector plugin installed yet.",
-    }
+    # Update collection run metadata
+    run.collector_version = getattr(provider_instance, "__version__", "0.1.0")
+    run.save(update_fields=["collector_version"])
+
+    # Run the collection
+    result = provider_instance.run_collection(run)
+
+    return result.as_dict()
