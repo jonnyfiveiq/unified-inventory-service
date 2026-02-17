@@ -10,7 +10,6 @@ dependencies = [
     "django-ansible-base[rest_filters,jwt_consumer,resource_registry,rbac,feature_flags,api_documentation]",
     "dispatcherd[pg_notify] @ git+https://github.com/ansible/dispatcherd",
     "django-filter>=25.1",
-    "inventory-providers",
 ]
 
 [dependency-groups]
@@ -128,11 +127,10 @@ with open('.copier-answers.yml') as f:
 [tool.uv.sources]
 django-ansible-base = { git = "https://github.com/ansible/django-ansible-base", rev = "devel" }
 dispatcherd = { git = "https://github.com/ansible/dispatcherd" }
-inventory-providers = { path = "../is-providers" }
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["inventory_service*", "apps*"]
+include = ["inventory_service*", "apps*", "inventory_providers*"]
 exclude = ["tests*"]
 
 [build-system]
