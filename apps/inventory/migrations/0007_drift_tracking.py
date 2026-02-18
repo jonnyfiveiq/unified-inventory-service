@@ -375,14 +375,6 @@ class Migration(migrations.Migration):
             name='value',
             field=models.CharField(blank=True, default='', help_text='Tag value.', max_length=1024),
         ),
-        migrations.AddIndex(
-            model_name='resource',
-            index=models.Index(fields=['properties'], name='idx_resource_properties_gin', opclasses=['jsonb_path_ops']),
-        ),
-        migrations.AddIndex(
-            model_name='resource',
-            index=models.Index(fields=['provider_tags'], name='idx_resource_provider_tags_gin', opclasses=['jsonb_path_ops']),
-        ),
         migrations.AddField(
             model_name='resourcedrift',
             name='collection_run',
