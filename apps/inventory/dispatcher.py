@@ -26,21 +26,58 @@ DEFAULT_TASK_TIMEOUT = 3600  # 1 hour max per collection run
 
 
 def build_conninfo() -> str:
-    """Build a libpq connection string from Django DATABASES['default']."""
-    db = settings.DATABASES["default"]
+    """Build a libpq connection string from Django DATABASES['default'].
+
+    Falls back to INVENTORY_SERVICE_DB_* / INVENTORY_SERVICE_DATABASES__default__*
+    environment variables when Django settings contain the default ``127.0.0.1``
+    placeholder (which happens when ``override_database_settings`` runs before
+    Dynaconf resolves the nested env-var overrides).
+    """
+    import os
+
+    db = dict(settings.DATABASES.get("default", {}))
+
+    # Dynaconf nested env vars (INVENTORY_SERVICE_DATABASES__default__HOST)
+    # may not be reflected in the dict snapshot returned by settings.DATABASES
+    # when override_database_settings() has already overwritten it with the
+    # DB_HOST default of 127.0.0.1.  Fall back to env vars directly.
+    env_host = (
+        os.environ.get("INVENTORY_SERVICE_DB_HOST")
+        or os.environ.get("INVENTORY_SERVICE_DATABASES__default__HOST")
+    )
+    env_port = (
+        os.environ.get("INVENTORY_SERVICE_DB_PORT")
+        or os.environ.get("INVENTORY_SERVICE_DATABASES__default__PORT")
+    )
+    env_name = (
+        os.environ.get("INVENTORY_SERVICE_DB_NAME")
+        or os.environ.get("INVENTORY_SERVICE_DATABASES__default__NAME")
+    )
+    env_user = (
+        os.environ.get("INVENTORY_SERVICE_DB_USER")
+        or os.environ.get("INVENTORY_SERVICE_DATABASES__default__USER")
+    )
+    env_password = (
+        os.environ.get("INVENTORY_SERVICE_DB_PASSWORD")
+        or os.environ.get("INVENTORY_SERVICE_DATABASES__default__PASSWORD")
+    )
+
+    host = env_host or db.get("HOST") or "127.0.0.1"
+    port = env_port or db.get("PORT") or "5432"
+    name = env_name or db.get("NAME") or "inventory_db"
+    user = env_user or db.get("USER") or "inventory_svc"
+    password = env_password or db.get("PASSWORD") or ""
+
     parts = [
-        f"dbname={db.get('NAME', 'inventory_db')}",
-        f"user={db.get('USER', 'inventory_svc')}",
+        "dbname={}".format(name),
+        "user={}".format(user),
     ]
-    if db.get("PASSWORD"):
-        parts.append(f"password={db['PASSWORD']}")
-    if db.get("HOST"):
-        parts.append(f"host={db['HOST']}")
-    if db.get("PORT"):
-        parts.append(f"port={db['PORT']}")
+    if password:
+        parts.append("password={}".format(password))
+    parts.append("host={}".format(host))
+    parts.append("port={}".format(port))
     parts.append("application_name=inventory_dispatcher")
     return " ".join(parts)
-
 
 def get_dispatcher_config() -> dict:
     """Return the full dispatcherd config dictionary."""

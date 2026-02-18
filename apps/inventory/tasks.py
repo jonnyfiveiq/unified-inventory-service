@@ -24,13 +24,9 @@ logger = logging.getLogger("apps.inventory.tasks")
 # ---------------------------------------------------------------------------
 
 try:
-    from dispatcherd.config import setup as _dispatcherd_setup
+    from apps.inventory.dispatcher import setup_dispatcher
+    setup_dispatcher()
     from dispatcherd.publish import task
-
-    _dispatcherd_setup(
-        settings_module="inventory_service.settings",
-        service_name="inventory",
-    )
 except ImportError:
     logger.debug("dispatcherd not available — tasks will not be registerable")
 
@@ -131,30 +127,14 @@ def run_collection(collection_run_id: str) -> dict:
 
 
 def _do_collection(run) -> dict:
-    """
-    Delegate collection to the appropriate provider plugin.
-
-    Looks up the registered provider for this run's provider model,
-    resolves credentials from the Provider record, and delegates
-    the full collection lifecycle to the plugin.
-    """
     from inventory_providers import registry
-    from inventory_providers.base import ProviderCredential
+    from inventory_providers.base import CollectionResult, ProviderCredential
+    from apps.inventory.models import Resource, ResourceRelationship, ResourceSighting, ResourceType
 
     provider_model = run.provider
     config = provider_model.connection_config or {}
+    logger.info("Collecting from provider=%s endpoint=%s", provider_model.name, provider_model.endpoint)
 
-    logger.info(
-        "Collecting from provider=%s vendor=%s type=%s endpoint=%s",
-        provider_model.name,
-        provider_model.vendor,
-        provider_model.provider_type,
-        provider_model.endpoint,
-    )
-
-    # Resolve credentials from the Provider model.
-    # TODO: replace with proper credential resolver (AAP vault, external
-    # secret store) once the credential service integration is built.
     credential = ProviderCredential(
         hostname=provider_model.endpoint,
         username=config.get("username", ""),
@@ -164,12 +144,64 @@ def _do_collection(run) -> dict:
     )
 
     provider_instance = registry.instantiate(provider_model, credential)
-
-    # Update collection run metadata
     run.collector_version = getattr(provider_instance, "__version__", "0.1.0")
     run.save(update_fields=["collector_version"])
 
-    # Run the collection
-    result = provider_instance.run_collection(run)
+    result = CollectionResult()
+    deferred_rels = []
+    rt_cache = {}
 
+    def _get_rt(slug):
+        if slug not in rt_cache:
+            rt, _ = ResourceType.objects.get_or_create(slug=slug, defaults={"name": slug.replace("_", " ").title()})
+            rt_cache[slug] = rt
+        return rt_cache[slug]
+
+    # Ensure plugin deps are on sys.path (may not have been at startup)
+    import sys
+    from pathlib import Path
+    deps_dir = str(Path("/app/plugins/.deps"))
+    if deps_dir not in sys.path and Path(deps_dir).is_dir():
+        sys.path.insert(0, deps_dir)
+        logger.info("Added plugin deps to sys.path: %s", deps_dir)
+
+    provider_instance.connect()
+    logger.info("Connected to provider %s", provider_model.name)
+    try:
+        seen = set()
+        for rd in provider_instance.collect():
+            result.found += 1
+            seen.add(rd.ems_ref)
+            rt = _get_rt(rd.resource_type_slug)
+            defaults = dict(name=rd.name or rd.ems_ref, resource_type=rt, description=rd.description,
+                canonical_id=rd.canonical_id, vendor_identifiers=rd.vendor_identifiers,
+                vendor_type=rd.vendor_type, state=rd.state or "unknown", power_state=rd.power_state,
+                boot_time=rd.boot_time, region=rd.region, availability_zone=rd.availability_zone,
+                cloud_tenant=rd.cloud_tenant, flavor=rd.flavor, cpu_count=rd.cpu_count,
+                memory_mb=rd.memory_mb, disk_gb=rd.disk_gb, ip_addresses=rd.ip_addresses,
+                fqdn=rd.fqdn, mac_addresses=rd.mac_addresses, os_type=rd.os_type, os_name=rd.os_name,
+                properties=rd.properties, provider_tags=rd.provider_tags,
+                ansible_host=rd.ansible_host, ansible_connection=rd.ansible_connection,
+                inventory_group=rd.inventory_group, ems_created_on=rd.ems_created_on)
+            defaults["organization"] = provider_model.organization
+            resource, created = Resource.objects.update_or_create(provider=provider_model, ems_ref=rd.ems_ref, defaults=defaults)
+            if created:
+                result.created += 1
+            else:
+                result.updated += 1
+            ResourceSighting.objects.create(resource=resource, collection_run=run,
+                state=rd.state or "unknown", power_state=rd.power_state,
+                cpu_count=rd.cpu_count, memory_mb=rd.memory_mb, metrics=rd.metrics)
+            for rel in rd.relationships:
+                deferred_rels.append((rd.ems_ref, rel["target_ems_ref"], rel["relationship_type"]))
+        if deferred_rels:
+            ems_map = dict(Resource.objects.filter(provider=provider_model, ems_ref__in=seen).values_list("ems_ref", "id"))
+            for s, t, rtype in deferred_rels:
+                sid, tid = ems_map.get(s), ems_map.get(t)
+                if sid and tid:
+                    ResourceRelationship.objects.update_or_create(source_id=sid, target_id=tid, defaults={"relationship_type": rtype})
+        logger.info("Collection complete: found=%d created=%d updated=%d", result.found, result.created, result.updated)
+    finally:
+        provider_instance.disconnect()
+        logger.info("Disconnected from provider %s", provider_model.name)
     return result.as_dict()

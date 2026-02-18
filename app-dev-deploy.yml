@@ -160,6 +160,9 @@ spec:
       labels:
         app: inventory-service
     spec:
+      volumes:
+        - name: plugins
+          emptyDir: {}
       containers:
         - name: inventory-service
           image: __INVENTORY_SERVICE_IMAGE__
@@ -205,6 +208,9 @@ spec:
               value: "False"
             - name: INVENTORY_SERVICE_SERVICE_PREFIX
               value: inventory
+          volumeMounts:
+            - name: plugins
+              mountPath: /app/plugins
           readinessProbe:
             httpGet:
               path: /ping/
@@ -217,6 +223,56 @@ spec:
               port: 8000
             initialDelaySeconds: 15
             periodSeconds: 10
+        # Dispatcher worker -- runs collection tasks submitted via pg_notify.
+        # Shares the /app/plugins volume with the web container so
+        # uploaded provider plugins and their pip deps are visible to
+        # both the publisher (web) and the consumer (dispatcher).
+        - name: dispatcher
+          image: __INVENTORY_SERVICE_IMAGE__
+          imagePullPolicy: Always
+          command: ["sh", "-c", "export PYTHONPATH=/app/plugins/.deps:${PYTHONPATH} && uv run --no-sync python manage.py run_dispatcher"]
+          env:
+            - name: INVENTORY_SERVICE_DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  key: host
+                  name: inventory-service-postgres-configuration
+            - name: INVENTORY_SERVICE_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  key: database
+                  name: inventory-service-postgres-configuration
+            - name: INVENTORY_SERVICE_DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  key: port
+                  name: inventory-service-postgres-configuration
+            - name: INVENTORY_SERVICE_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  key: username
+                  name: inventory-service-postgres-configuration
+            - name: INVENTORY_SERVICE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: password
+                  name: inventory-service-postgres-configuration
+            - name: INVENTORY_SERVICE_ALLOWED_HOSTS
+              value: '["localhost","127.0.0.1","0.0.0.0","inventory-service"]'
+            - name: INVENTORY_SERVICE_AAP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: myaap-admin-password
+                  key: password
+            - name: INVENTORY_SERVICE_ANSIBLE_BASE_JWT_KEY
+              value: http://myaap-api.aap26.svc.cluster.local
+            - name: INVENTORY_SERVICE_ANSIBLE_BASE_JWT_VALIDATE_CERT
+              value: "False"
+            - name: INVENTORY_SERVICE_SERVICE_PREFIX
+              value: inventory
+          volumeMounts:
+            - name: plugins
+              mountPath: /app/plugins
 ---
 apiVersion: v1
 kind: Service

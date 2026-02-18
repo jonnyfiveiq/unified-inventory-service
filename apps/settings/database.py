@@ -26,19 +26,33 @@ Environment variables (set via compose.yaml or shell):
   INVENTORY_SERVICE_DB_SSLROOTCERT (default: "")
 """
 
+import os
+
 from django.core.exceptions import ImproperlyConfigured
 from dynaconf import Dynaconf
+
+
+def _env_or(loaded_settings, dynaconf_key, env_key, default):
+    """Read from Dynaconf DB_* keys, falling back to
+    INVENTORY_SERVICE_DATABASES__default__* env vars, then default."""
+    val = loaded_settings.get(dynaconf_key, None)
+    if val is not None:
+        return val
+    val = os.environ.get(env_key)
+    if val is not None:
+        return val
+    return default
 
 
 def override_database_settings(loaded_settings: Dynaconf) -> None:
     """Build PostgreSQL DATABASES from DB_* settings loaded by Dynaconf."""
     databases = loaded_settings.get("DATABASES", {})
 
-    db_host = loaded_settings.get("DB_HOST", "127.0.0.1")
-    db_port = loaded_settings.get("DB_PORT", 5432)
-    db_user = loaded_settings.get("DB_USER", "inventory")
-    db_password = loaded_settings.get("DB_PASSWORD", "inventory123")
-    db_name = loaded_settings.get("DB_NAME", "inventory_db")
+    db_host = _env_or(loaded_settings, "DB_HOST", "INVENTORY_SERVICE_DATABASES__default__HOST", "127.0.0.1")
+    db_port = _env_or(loaded_settings, "DB_PORT", "INVENTORY_SERVICE_DATABASES__default__PORT", 5432)
+    db_user = _env_or(loaded_settings, "DB_USER", "INVENTORY_SERVICE_DATABASES__default__USER", "inventory")
+    db_password = _env_or(loaded_settings, "DB_PASSWORD", "INVENTORY_SERVICE_DATABASES__default__PASSWORD", "inventory123")
+    db_name = _env_or(loaded_settings, "DB_NAME", "INVENTORY_SERVICE_DATABASES__default__NAME", "inventory_db")
     db_app_name = loaded_settings.get("DB_APP_NAME", "inventory_service")
 
     db_sslmode = loaded_settings.get("DB_SSLMODE", default="allow")

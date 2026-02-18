@@ -371,6 +371,144 @@ management, RBAC, activity streams and service discovery.
 | `GET` | `/ping/` | Lightweight liveness check |
 | `GET` | `/health/` | Service health status |
 
+## Quick Start — Collection Workflow
+
+End-to-end example: upload a provider plugin, create a provider, run a
+collection and inspect the results. All commands assume the service is
+accessible at `http://localhost:44926` and the admin password is in `$PASS`.
+
+### 1. Upload a provider plugin
+
+Provider plugins live in the
+[is-providers](https://github.com/jonnyfiveiq/is-providers) repository.
+Each plugin has an `install.sh` that packages and uploads it:
+
+```bash
+cd is-providers/vmware/vcenter
+./install.sh --force
+```
+
+Or upload manually via the API:
+
+```bash
+cd is-providers/vmware/vcenter
+tar czf /tmp/plugin.tar.gz -C . manifest.yml provider.py meta/ requirements.txt
+
+curl -s -X POST -u admin:$PASS \
+  -F "archive=@/tmp/plugin.tar.gz" \
+  http://localhost:44926/api/inventory/v1/provider-plugins/upload/
+```
+
+The plugin is hot-loaded — no restart needed.  Verify it is registered:
+
+```bash
+curl -s -u admin:$PASS http://localhost:44926/api/inventory/v1/provider-plugins/ | python3 -m json.tool
+```
+
+### 2. Create a provider
+
+A provider represents a specific connection to an infrastructure platform.
+The `vendor` and `provider_type` fields must match a registered plugin key.
+
+```bash
+curl -s -X POST -u admin:$PASS \
+  -H "Content-Type: application/json" \
+  http://localhost:44926/api/inventory/v1/providers/ \
+  -d '{
+    "name": "Home Lab vCenter",
+    "vendor": "vmware",
+    "provider_type": "vcenter",
+    "infrastructure": "private_cloud",
+    "organization": 1,
+    "endpoint": "192.168.0.195",
+    "connection_config": {
+      "username": "administrator@vsphere.local",
+      "password": "secret",
+      "port": 443,
+      "verify_ssl": false
+    }
+  }'
+```
+
+The response includes the provider `id` (UUID) needed for subsequent calls.
+
+### 3. Trigger a collection
+
+```bash
+PROVIDER_ID=82e1aa51-b595-4048-a793-25faeb44f39c
+
+curl -s -X POST -u admin:$PASS \
+  http://localhost:44926/api/inventory/v1/providers/$PROVIDER_ID/collect/ \
+  | python3 -m json.tool
+```
+
+Returns a `CollectionRun` object in `pending` state with an `id` you can poll.
+
+### 4. Check collection progress
+
+Poll the collection run by ID:
+
+```bash
+RUN_ID=81bf1bd6-9e6f-4d84-8101-e4282a5b2144
+
+curl -s -u admin:$PASS \
+  http://localhost:44926/api/inventory/v1/collection-runs/$RUN_ID/ \
+  | python3 -m json.tool
+```
+
+Example completed response:
+
+```json
+{
+  "status": "completed",
+  "resources_found": 23,
+  "resources_created": 23,
+  "resources_updated": 0,
+  "resources_removed": 0,
+  "duration_seconds": 0.954,
+  "error_message": ""
+}
+```
+
+Status transitions: `pending` → `running` → `completed` | `failed` | `canceled`.
+
+For live monitoring, watch the dispatcher logs alongside the poll:
+
+```bash
+kubectl -n aap26 logs -f -l app=inventory-service -c dispatcher --tail=20
+```
+
+### 5. View collected resources
+
+List all resources:
+
+```bash
+curl -s -u admin:$PASS \
+  http://localhost:44926/api/inventory/v1/resources/ | python3 -m json.tool
+```
+
+Filter by resource type or provider:
+
+```bash
+# Only virtual machines
+curl -s -u admin:$PASS \
+  "http://localhost:44926/api/inventory/v1/resources/?resource_type_slug=virtual_machine"
+
+# Only from a specific provider
+curl -s -u admin:$PASS \
+  "http://localhost:44926/api/inventory/v1/resources/?provider=$PROVIDER_ID"
+```
+
+View sighting history for a specific resource:
+
+```bash
+RESOURCE_ID=5c834a92-db27-4488-b043-dc6d80d45e56
+
+curl -s -u admin:$PASS \
+  http://localhost:44926/api/inventory/v1/resources/$RESOURCE_ID/sightings/ \
+  | python3 -m json.tool
+```
+
 ## API Endpoint Summary
 
 | Endpoint | Access | Methods | Notes |

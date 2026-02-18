@@ -42,22 +42,43 @@ def get_registry():
     """
     Return the provider registry, applying Django settings filters on first call.
 
+    Ensures ``plugins_dir`` is set before discovery so that file-based
+    plugins (uploaded via the provider-plugins API) are found even when
+    this function is called from a management command or worker process
+    that may not have run the full ``InventoryConfig.ready()`` path.
+
     Settings:
         INVENTORY_PROVIDERS_ENABLED:  list of 'vendor:type' keys to whitelist
         INVENTORY_PROVIDERS_DISABLED: list of 'vendor:type' keys to blacklist
     """
     global _registry_initialized
-
     if not _registry_initialized:
+        # Ensure plugins_dir is set before discovery -- apps.py sets this
+        # at startup, but worker processes and management commands may
+        # reach here before ready() has run.
+        if registry.plugins_dir is None:
+            from pathlib import Path
+            plugins_dir = Path(getattr(settings, "PLUGINS_DIR", settings.BASE_DIR / "plugins"))
+            if plugins_dir.is_dir():
+                registry.plugins_dir = plugins_dir
+                logger.info("get_registry: set plugins_dir=%s", plugins_dir)
+
+        # Ensure plugin .deps are importable (pip deps installed during upload)
+        import sys
+        if registry.plugins_dir:
+            deps_dir = registry.plugins_dir / ".deps"
+            if deps_dir.is_dir():
+                deps_str = str(deps_dir)
+                if deps_str not in sys.path:
+                    sys.path.insert(0, deps_str)
+
         registry.discover()
         registry.apply_filter(
             enabled=getattr(settings, "INVENTORY_PROVIDERS_ENABLED", None),
             disabled=getattr(settings, "INVENTORY_PROVIDERS_DISABLED", None),
         )
         _registry_initialized = True
-
     return registry
-
 
 # ── Credential resolution ─────────────────────────────────────────────
 

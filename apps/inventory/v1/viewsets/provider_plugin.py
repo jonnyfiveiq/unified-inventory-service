@@ -30,6 +30,7 @@ Endpoints:
 from __future__ import annotations
 
 import logging
+import sys
 import shutil
 import subprocess
 import tarfile
@@ -503,14 +504,43 @@ class ProviderPluginViewSet(ViewSet):
         """
         Install Python dependencies from requirements.txt if present.
 
+        Installs into a shared ``plugins/.deps/`` directory that is added
+        to ``sys.path`` so all plugins can import their dependencies without
+        requiring a writable virtualenv.
+
         Returns a dict with install status for the API response.
         """
         requirements_txt = plugin_dir / "requirements.txt"
         if not requirements_txt.exists():
             return {"python": "no requirements.txt — skipped"}
 
-        # Try uv first (preferred in containerized deployments), fall back to pip
-        for cmd in (["uv", "pip", "install"], ["pip", "install"]):
+        # Install to a writable deps directory alongside the plugins dir.
+        # The venv may be read-only in container images, so --target avoids that.
+        deps_dir = plugin_dir.parent.parent / ".deps"
+        deps_dir.mkdir(parents=True, exist_ok=True)
+
+        # Ensure deps_dir is on sys.path so imports work at runtime
+        deps_str = str(deps_dir)
+        if deps_str not in sys.path:
+            sys.path.insert(0, deps_str)
+
+        # Build candidate commands — use full paths and sys.executable fallback
+        import shutil as _shutil
+        candidates = []
+
+        uv_path = _shutil.which("uv") or "/usr/local/bin/uv"
+        if Path(uv_path).exists():
+            candidates.append([uv_path, "pip", "install", "--target", deps_str])
+
+        pip_path = _shutil.which("pip")
+        if pip_path:
+            candidates.append([pip_path, "install", "--target", deps_str])
+
+        # Always have a fallback via the running interpreter
+        candidates.append([sys.executable, "-m", "pip", "install", "--target", deps_str])
+
+        errors = []
+        for cmd in candidates:
             try:
                 result = subprocess.run(
                     [*cmd, "--no-input", "-r", str(requirements_txt)],
@@ -519,12 +549,22 @@ class ProviderPluginViewSet(ViewSet):
                     timeout=300,  # 5 minute timeout
                 )
                 if result.returncode == 0:
-                    logger.info("Installed Python deps for plugin from %s (using %s)", requirements_txt, cmd[0])
-                    return {"python": "installed", "installer": cmd[0]}
-                logger.warning("%s install failed: %s", cmd[0], result.stderr)
+                    installer = Path(cmd[0]).name
+                    logger.info(
+                        "Installed Python deps for plugin from %s (using %s -> %s)",
+                        requirements_txt, installer, deps_dir,
+                    )
+                    return {
+                        "python": "installed",
+                        "installer": installer,
+                        "target": deps_str,
+                    }
+                errors.append(f"{cmd[0]}: {result.stderr.strip()[:200]}")
+                logger.warning("%s install failed (rc=%d): %s", cmd[0], result.returncode, result.stderr)
             except FileNotFoundError:
-                continue  # Try next installer
+                errors.append(f"{cmd[0]}: not found")
+                continue
             except subprocess.TimeoutExpired:
                 return {"python": "install timed out (300s)"}
 
-        return {"python": "install failed — neither uv nor pip found"}
+        return {"python": "install failed", "errors": errors}
