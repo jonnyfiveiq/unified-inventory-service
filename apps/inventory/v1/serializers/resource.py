@@ -57,6 +57,8 @@ class ResourceSerializer(serializers.ModelSerializer):
             "first_discovered_at",
             "last_seen_at",
             "seen_count",
+            "deleted_at",
+            "is_deleted",
             "organization",
         ]
         read_only_fields = fields

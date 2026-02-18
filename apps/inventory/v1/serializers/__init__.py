@@ -1,4 +1,5 @@
 from .collection_run import CollectionRunCancelSerializer, CollectionRunSerializer
+from .drift import ResourceDriftSerializer
 from .provider import ProviderCollectSerializer, ProviderSerializer
 from .resource import ResourceRelationshipSerializer, ResourceSerializer, ResourceSightingSerializer
 from .taxonomy import (
@@ -13,17 +14,18 @@ from .provider_plugin import (  # noqa: F401
 )
 
 __all__ = [
-    "CollectionRunCancelSerializer",
-    "CollectionRunSerializer",
-    "ProviderCollectSerializer",
-    "ProviderSerializer",
-    "ProviderPluginSerializer",
-    "ProviderPluginTestResultSerializer",
-    "ResourceCategorySerializer",
-    "ResourceRelationshipSerializer",
-    "ResourceSerializer",
-    "ResourceSightingSerializer",
-    "ResourceTypeSerializer",
-    "VendorTypeMappingSerializer",
-    "PropertyDefinitionSerializer",
+    'CollectionRunCancelSerializer',
+    'CollectionRunSerializer',
+    'ProviderCollectSerializer',
+    'ProviderSerializer',
+    'ProviderPluginSerializer',
+    'ProviderPluginTestResultSerializer',
+    'ResourceCategorySerializer',
+    'ResourceDriftSerializer',
+    'ResourceRelationshipSerializer',
+    'ResourceSerializer',
+    'ResourceSightingSerializer',
+    'ResourceTypeSerializer',
+    'VendorTypeMappingSerializer',
+    'PropertyDefinitionSerializer',
 ]

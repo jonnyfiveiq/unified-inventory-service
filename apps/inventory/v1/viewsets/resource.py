@@ -197,3 +197,34 @@ class ResourceRelationshipViewSet(ListModelMixin, RetrieveModelMixin, GenericVie
     permission_classes = [IsAuthenticated]
     filterset_fields = ["relationship_type", "source", "target"]
     ordering_fields = ["relationship_type"]
+
+    @action(detail=True, methods=['get'], url_path='drift')
+    def drift(self, request, pk=None):
+        """Return the drift history for this specific resource.
+
+        Equivalent to GET /resource-drift/?resource=<pk> but scoped
+        to a single resource and accessible as a sub-resource URL.
+        """
+        from apps.inventory.models import ResourceDrift
+        from apps.inventory.v1.serializers.drift import ResourceDriftSerializer
+
+        resource = self.get_object()
+        qs = (
+            ResourceDrift.objects
+            .filter(resource=resource)
+            .select_related('collection_run', 'previous_collection_run')
+            .order_by('-detected_at')
+        )
+
+        drift_type = request.query_params.get('drift_type')
+        if drift_type:
+            qs = qs.filter(drift_type=drift_type)
+
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            serializer = ResourceDriftSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = ResourceDriftSerializer(qs, many=True)
+        return Response(serializer.data)
+

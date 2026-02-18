@@ -304,6 +304,40 @@ class Resource(models.Model):
         "Incremented by the collector on each run where the resource is found.",
     )
 
+
+    # === Soft Delete / Drift Tracking ===
+    deleted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=(
+            'When this resource was detected missing from the provider. '
+            'NULL means currently present. Set during collection when a '
+            'previously-known resource is absent from the current run.'
+        ),
+    )
+
+    @property
+    def is_deleted(self) -> bool:
+        return self.deleted_at is not None
+
+
+    # === Soft Delete / Drift Tracking ===
+    deleted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=(
+            'When this resource was detected missing from the provider. '
+            'NULL means currently present. Set during collection when a '
+            'previously-known resource is absent from the current run.'
+        ),
+    )
+
+    @property
+    def is_deleted(self) -> bool:
+        return self.deleted_at is not None
+
     # === Ownership ===
     organization = models.ForeignKey(
         "core.Organization",
@@ -489,3 +523,87 @@ class ResourceSighting(models.Model):
 
     def __str__(self):
         return f"{self.resource.name} @ {self.seen_at} [{self.state}]"
+
+
+# ---------------------------------------------------------------------------
+# Drift detection
+# ---------------------------------------------------------------------------
+
+DRIFT_TRACKED_FIELDS = [
+    'name', 'state', 'power_state',
+    'cpu_count', 'memory_mb', 'disk_gb',
+    'ip_addresses', 'fqdn', 'os_name', 'os_type',
+    'region', 'availability_zone', 'flavor', 'cloud_tenant',
+    'ansible_host', 'ansible_connection',
+]
+
+
+class ResourceDrift(models.Model):
+    """Append-only record of drift detected on a resource between runs.
+
+    drift_type values:
+      modified  - tracked fields changed; changes = {field: {from:, to:}}
+      deleted   - resource absent from current run; changes = last-known snapshot
+      restored  - previously-deleted resource reappeared; changes = current snapshot
+    """
+
+    class DriftType(models.TextChoices):
+        MODIFIED = 'modified', 'Modified'
+        DELETED  = 'deleted',  'Deleted'
+        RESTORED = 'restored', 'Restored'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    resource = models.ForeignKey(
+        Resource,
+        on_delete=models.CASCADE,
+        related_name='drift_events',
+    )
+    collection_run = models.ForeignKey(
+        'inventory.CollectionRun',
+        on_delete=models.CASCADE,
+        related_name='drift_events',
+        help_text='The collection run that detected this drift.',
+    )
+    previous_collection_run = models.ForeignKey(
+        'inventory.CollectionRun',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='drift_events_as_previous',
+        help_text='The prior run being compared against.',
+    )
+    drift_type = models.CharField(max_length=16, choices=DriftType.choices, db_index=True)
+    detected_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    changes = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            'modified: {field: {from: old, to: new}} for every changed field. '
+            'deleted/restored: snapshot of key field values at event time.'
+        ),
+    )
+
+    class Meta:
+        ordering = ['-detected_at']
+        indexes = [
+            models.Index(fields=['resource', '-detected_at']),
+            models.Index(fields=['collection_run', 'drift_type']),
+            models.Index(fields=['drift_type', '-detected_at']),
+        ]
+
+    def __str__(self):
+        return f'{self.drift_type.upper()}: {self.resource.name} @ {self.detected_at}'
+
+
+# ---------------------------------------------------------------------------
+# Drift detection
+# ---------------------------------------------------------------------------
+
+DRIFT_TRACKED_FIELDS = [
+    'name', 'state', 'power_state',
+    'cpu_count', 'memory_mb', 'disk_gb',
+    'ip_addresses', 'fqdn', 'os_name', 'os_type',
+    'region', 'availability_zone', 'flavor', 'cloud_tenant',
+    'ansible_host', 'ansible_connection',
+]
