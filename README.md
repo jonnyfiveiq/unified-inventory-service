@@ -633,7 +633,7 @@ make admin-password
 ### Verify
 
 ```bash
-PASS=$(make admin-password 2>/dev/null | tail -1)
+WASS=$(make admin-password 2>/dev/null | tail -1)
 curl -s http://localhost:44926/api/inventory/v1/providers/ -u "admin:$PASS" | python3 -m json.tool
 ```
 
