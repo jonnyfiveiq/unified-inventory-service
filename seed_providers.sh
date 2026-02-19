@@ -8,29 +8,39 @@
 #   ./seed_providers.sh                    # defaults: localhost:44926, admin/<auto>
 #   ./seed_providers.sh -H myhost:8080
 #   ./seed_providers.sh -u admin -p pass
+#   ./seed_providers.sh --force            # delete and recreate existing providers
 
 set -uo pipefail
 
 HOST="localhost:44926"
 USER="admin"
-
 AAP_DEV_ROOT="$(cd "$(dirname "$0")/../.." 2>/dev/null && pwd)"
 KUBECONFIG="${AAP_DEV_ROOT}/.tmp/26.kubeconfig"
 if [[ -f "$KUBECONFIG" ]]; then
-    PASS="$(kubectl --kubeconfig="$KUBECONFIG" get secret myaap-admin-password -n aap26 -o json 2>/dev/null | python3 -c "import sys,json,base64; print(base64.b64decode(json.load(sys.stdin)['data']['password']).decode())" 2>/dev/null)" || PASS=""
+  PASS="$(kubectl --kubeconfig="$KUBECONFIG" get secret myaap-admin-password -n aap26 -o json 2>/dev/null \
+    | python3 -c "import sys,json,base64; print(base64.b64decode(json.load(sys.stdin)['data']['password']).decode())" 2>/dev/null)" || PASS=""
 fi
 if [[ -z "${PASS:-}" ]]; then
-    echo "Could not auto-detect admin password. Use -p flag."
-    exit 1
+  echo "Could not auto-detect admin password. Use -p flag."
+  exit 1
 fi
 
 PREFIX="/api/inventory/v1"
+
+# Strip --force before getopts
+FORCE=false
+ARGS=()
+for arg in "$@"; do
+  if [ "$arg" = "--force" ]; then FORCE=true; else ARGS+=("$arg"); fi
+done
+set -- "${ARGS[@]+"${ARGS[@]}"}"
+
 while getopts "H:u:p:" opt; do
   case $opt in
     H) HOST="$OPTARG" ;;
     u) USER="$OPTARG" ;;
     p) PASS="$OPTARG" ;;
-    *) echo "Usage: $0 [-H host:port] [-u user] [-p password]"; exit 1 ;;
+    *) echo "Usage: $0 [--force] [-H host:port] [-u user] [-p password]"; exit 1 ;;
   esac
 done
 
@@ -61,6 +71,7 @@ json_field() { echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin
 
 echo -e "\n${cCYAN}━━━ Seeding Providers ━━━${cRESET}"
 echo "Target: $BASE"
+[ "$FORCE" = "true" ] && echo "  --force: existing providers will be deleted and recreated"
 
 # Get org ID
 api_get "/organizations/"
@@ -73,12 +84,16 @@ echo "  Using org: $ORG_ID"
 
 create_or_skip() {
   local name=$1 payload=$2
-  # Check if already exists
   api_get "/providers/?search=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$name")"
   EXISTING=$(json_field "['results'][0]['id']" 2>/dev/null || true)
   if [ -n "$EXISTING" ] && [ "$EXISTING" != "None" ]; then
-    info "$name already exists ($EXISTING) — skipping"
-    return
+    if [ "$FORCE" = "true" ]; then
+      curl -s -o /dev/null $AUTH -X DELETE "${BASE}/providers/${EXISTING}/"
+      info "Deleted existing $name ($EXISTING) — recreating"
+    else
+      info "$name already exists ($EXISTING) — skipping"
+      return
+    fi
   fi
   api_post "/providers/" "$payload"
   if [ "$CODE" = "201" ]; then
