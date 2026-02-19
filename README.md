@@ -380,7 +380,7 @@ accessible at `http://localhost:44926` and the admin password is in `$PASS`.
 ### 1. Upload a provider plugin
 
 Provider plugins live in the
-[is-providers](https://github.com/jonnyfiveiq/is-providers) repository.
+[unified-inventory-service-provider-plugins](https://github.com/jonnyfiveiq/unified-inventory-service-provider-plugins) repository.
 Each plugin has an `install.sh` that packages and uploads it:
 
 ```bash
