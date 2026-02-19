@@ -603,42 +603,19 @@ cd aap-dev/src/
 git clone https://github.com/jonnyfiveiq/unified-inventory-service.git inventory-service
 ```
 
-### 2. Create Kubernetes manifests
+### 2. Wire into aap-dev
 
-Create the directory structure:
-
-```
-manifests/base/apps/inventory-service/
-├── kustomization.yaml
-└── k8s/
-    ├── configmap.yaml
-    ├── database.yaml
-    ├── deployments.yaml
-    ├── register-job.yaml
-    ├── secrets.yaml
-    └── services.yaml
-```
-
-See the [aap-dev deployment docs](https://github.com/ansible/aap-dev) for
-the full manifest content. Key configuration points:
-
-- **Gateway API slug**: `inventory` — external path is `/api/inventory/v1/`
-- **Internal service name**: `inventory-service` (K8s service, deployment, DNS)
-- **Database**: Dedicated PostgreSQL 15 instance (`inventory_db`)
-
-### 3. Create the skaffold addon
-
-```
-skaffolding/addons/inventory-service/skaffold.yaml
-```
-
-Activated with:
+Run the setup script from the aap-dev root. It creates all required Kubernetes
+manifests, the skaffold addon config, and patches `makefiles/common.mk` and
+`skaffolding/skaffold.yaml`. The script is idempotent — safe to re-run after
+a fresh `git sync` of aap-dev.
 
 ```bash
-export AAP_INVENTORY_SERVICE=true
+cd ~/upstream/aap-dev
+src/inventory-service/setup-aap-dev.sh
 ```
 
-### 4. Deploy
+### 3. Deploy
 
 ```bash
 export AAP_INVENTORY_SERVICE=true
@@ -647,7 +624,6 @@ make clean && make aap
 ```
 
 The service will be available at `http://localhost:44926/api/inventory/v1/`.
-
 Admin password:
 
 ```bash

@@ -154,8 +154,7 @@ wheels = [
 
 [[package]]
 name = "dispatcherd"
-version = "2026.1.27.1.dev1"
-source = { git = "https://github.com/ansible/dispatcherd?rev=8cd50976def88aecbe49d2802ff7e7badfced33f#8cd50976def88aecbe49d2802ff7e7badfced33f" }
+source = { editable = "_vendor/dispatcherd" }
 dependencies = [
     { name = "pyyaml" },
 ]
@@ -164,6 +163,16 @@ dependencies = [
 pg-notify = [
     { name = "psycopg" },
 ]
+
+[package.metadata]
+requires-dist = [
+    { name = "prometheus-client", marker = "extra == 'metrics'" },
+    { name = "psycopg", marker = "extra == 'pg-notify'", specifier = ">=3.2.4" },
+    { name = "psycopg", extras = ["binary"], marker = "extra == 'pg-notify-dev'", specifier = ">=3.2.4" },
+    { name = "psycopg", extras = ["c"], marker = "extra == 'pg-notify-prod'", specifier = ">=3.2.4" },
+    { name = "pyyaml" },
+]
+provides-extras = ["pg-notify", "pg-notify-dev", "pg-notify-prod", "metrics"]
 
 [[package]]
 name = "distlib"
@@ -190,8 +199,7 @@ wheels = [
 
 [[package]]
 name = "django-ansible-base"
-version = "2026.2.11.0.dev7+ge3d7b8802"
-source = { git = "https://github.com/ansible/django-ansible-base?rev=e3d7b8802942d61fdccf101bcd585776839b258c#e3d7b8802942d61fdccf101bcd585776839b258c" }
+source = { editable = "_vendor/django-ansible-base" }
 dependencies = [
     { name = "cryptography" },
     { name = "django" },
@@ -220,6 +228,70 @@ resource-registry = [
     { name = "requests" },
     { name = "urllib3" },
 ]
+
+[package.metadata]
+requires-dist = [
+    { name = "asgiref", marker = "extra == 'all'" },
+    { name = "asgiref", marker = "extra == 'resource-registry'" },
+    { name = "channels", marker = "extra == 'all'" },
+    { name = "channels", marker = "extra == 'channel-auth'" },
+    { name = "cryptography" },
+    { name = "cryptography", marker = "extra == 'all'" },
+    { name = "cryptography", marker = "extra == 'testing'" },
+    { name = "django", specifier = ">=4.2.26,<6.0" },
+    { name = "django-auth-ldap", marker = "extra == 'all'" },
+    { name = "django-auth-ldap", marker = "extra == 'authentication'" },
+    { name = "django-crum" },
+    { name = "django-flags", marker = "extra == 'all'" },
+    { name = "django-flags", marker = "extra == 'feature-flags'" },
+    { name = "django-oauth-toolkit", marker = "extra == 'all'", specifier = "<2.4.0" },
+    { name = "django-oauth-toolkit", marker = "extra == 'oauth2-provider'", specifier = "<2.4.0" },
+    { name = "django-redis", marker = "extra == 'all'" },
+    { name = "django-redis", marker = "extra == 'redis-client'" },
+    { name = "djangorestframework", specifier = "<3.16" },
+    { name = "drf-spectacular", marker = "extra == 'all'", specifier = "<1.0" },
+    { name = "drf-spectacular", marker = "extra == 'api-documentation'", specifier = "<1.0" },
+    { name = "dynaconf", specifier = ">=3.2.10,<4.0.0" },
+    { name = "inflection" },
+    { name = "ldap-filter", marker = "extra == 'all'" },
+    { name = "ldap-filter", marker = "extra == 'authentication'" },
+    { name = "lxml", marker = "extra == 'all'", specifier = "==5.3.0" },
+    { name = "lxml", marker = "extra == 'authentication'", specifier = "==5.3.0" },
+    { name = "pyjwt", marker = "extra == 'all'" },
+    { name = "pyjwt", marker = "extra == 'jwt-consumer'" },
+    { name = "pyjwt", marker = "extra == 'resource-registry'" },
+    { name = "pyrad", marker = "extra == 'all'" },
+    { name = "pyrad", marker = "extra == 'authentication'" },
+    { name = "pytest", marker = "extra == 'all'" },
+    { name = "pytest", marker = "extra == 'testing'" },
+    { name = "pytest-django", marker = "extra == 'all'" },
+    { name = "pytest-django", marker = "extra == 'testing'" },
+    { name = "python-ldap", marker = "extra == 'all'" },
+    { name = "python-ldap", marker = "extra == 'authentication'" },
+    { name = "python3-saml", marker = "extra == 'all'" },
+    { name = "python3-saml", marker = "extra == 'authentication'" },
+    { name = "redis", marker = "extra == 'all'" },
+    { name = "redis", marker = "extra == 'redis-client'" },
+    { name = "referencing", marker = "extra == 'all'", specifier = "<0.37.0" },
+    { name = "referencing", marker = "extra == 'api-documentation'", specifier = "<0.37.0" },
+    { name = "requests", marker = "extra == 'all'" },
+    { name = "requests", marker = "extra == 'jwt-consumer'" },
+    { name = "requests", marker = "extra == 'resource-registry'" },
+    { name = "social-auth-app-django", marker = "extra == 'all'", specifier = "==5.4.1" },
+    { name = "social-auth-app-django", marker = "extra == 'authentication'", specifier = "==5.4.1" },
+    { name = "social-auth-core", marker = "extra == 'all'", specifier = "<=4.5.4" },
+    { name = "social-auth-core", marker = "extra == 'authentication'", specifier = "<=4.5.4" },
+    { name = "sqlparse", specifier = ">=0.5.2" },
+    { name = "tabulate", marker = "extra == 'all'" },
+    { name = "tabulate", marker = "extra == 'authentication'" },
+    { name = "tacacs-plus", marker = "extra == 'all'" },
+    { name = "tacacs-plus", marker = "extra == 'authentication'" },
+    { name = "urllib3", marker = "extra == 'all'" },
+    { name = "urllib3", marker = "extra == 'resource-registry'" },
+    { name = "xmlsec", marker = "extra == 'all'", specifier = "==1.3.13" },
+    { name = "xmlsec", marker = "extra == 'authentication'", specifier = "==1.3.13" },
+]
+provides-extras = ["all", "activitystream", "authentication", "api-documentation", "rest-filters", "rbac", "channel-auth", "jwt-consumer", "testing", "redis-client", "oauth2-provider", "resource-registry", "feature-flags"]
 
 [[package]]
 name = "django-crum"
@@ -412,9 +484,9 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dispatcherd", extras = ["pg-notify"], git = "https://github.com/ansible/dispatcherd?rev=8cd50976def88aecbe49d2802ff7e7badfced33f" },
+    { name = "dispatcherd", extras = ["pg-notify"], editable = "_vendor/dispatcherd" },
     { name = "django", specifier = ">=5.2.7" },
-    { name = "django-ansible-base", extras = ["rest-filters", "jwt-consumer", "resource-registry", "rbac", "feature-flags", "api-documentation"], git = "https://github.com/ansible/django-ansible-base?rev=e3d7b8802942d61fdccf101bcd585776839b258c" },
+    { name = "django-ansible-base", extras = ["rest-filters", "jwt-consumer", "resource-registry", "rbac", "feature-flags", "api-documentation"], editable = "_vendor/django-ansible-base" },
     { name = "django-filter", specifier = ">=25.1" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.1" },
 ]

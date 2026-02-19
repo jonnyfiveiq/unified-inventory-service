@@ -125,8 +125,8 @@ with open('.copier-answers.yml') as f:
         print(f'uvx --refresh git+{src}@{branch} update{core_flag}')" | sh"""
 
 [tool.uv.sources]
-django-ansible-base = { git = "https://github.com/ansible/django-ansible-base", rev = "e3d7b8802942d61fdccf101bcd585776839b258c" }
-dispatcherd = { git = "https://github.com/ansible/dispatcherd", rev = "8cd50976def88aecbe49d2802ff7e7badfced33f" }
+django-ansible-base = { path = "_vendor/django-ansible-base", editable = true }
+dispatcherd = { path = "_vendor/dispatcherd", editable = true }
 
 [tool.setuptools.packages.find]
 where = ["."]
