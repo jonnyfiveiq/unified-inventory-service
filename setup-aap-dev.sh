@@ -1,24 +1,24 @@
 #!/bin/bash
-# setup-aap-dev.sh — Wire inventory-service into a freshly sync'd aap-dev checkout.
+# setup-aap-dev.sh -- Wire inventory-service into a freshly cloned aap-dev checkout.
 #
-# Run this from the root of your aap-dev repo after cloning/syncing:
-#
+# Run from the root of your aap-dev repo:
 #   cd ~/upstream/aap-dev
 #   src/inventory-service/setup-aap-dev.sh
 #
-# Idempotent — safe to re-run. Skips files/patches already applied.
+# Idempotent -- safe to re-run.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AAP_DEV_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-GREEN='\033[0;32m'; YELLOW='\033[0;33m'; CYAN='\033[0;36m'; RESET='\033[0m'
-ok()   { echo -e "  ${GREEN}✓${RESET} $1"; }
-skip() { echo -e "  ${YELLOW}⊘${RESET} $1 (already done)"; }
-info() { echo -e "  ${CYAN}→${RESET} $1"; }
+GREEN="[0;32m"; YELLOW="[0;33m"; CYAN="[0;36m"; RESET="[0m"
+ok()   { echo -e "  ${GREEN}ok${RESET} $1"; }
+skip() { echo -e "  ${YELLOW}skip${RESET} $1 (already done)"; }
+info() { echo -e "  ${CYAN}>>${RESET} $1"; }
 
-echo -e "\n${CYAN}━━━ inventory-service aap-dev setup ━━━${RESET}"
+echo -e "
+${CYAN}=== inventory-service aap-dev setup ===${RESET}"
 echo "aap-dev root: $AAP_DEV_ROOT"
 
 write_file() {
@@ -27,7 +27,61 @@ write_file() {
   mkdir -p "$(dirname "$path")"
   cat > "$path"
   ok "Created $path"
-}   podman push --tls-verify=false $IMAGE
+}
+
+# == 1. Patch makefiles/common.mk ==
+info "Checking makefiles/common.mk..."
+if grep -q "AAP_INVENTORY_SERVICE" "${AAP_DEV_ROOT}/makefiles/common.mk" 2>/dev/null; then
+  skip "makefiles/common.mk"
+else
+  sed -i.bak "/^export AAP_VERSION/a\
+export AAP_INVENTORY_SERVICE ?= true" "${AAP_DEV_ROOT}/makefiles/common.mk"
+  rm -f "${AAP_DEV_ROOT}/makefiles/common.mk.bak"
+  ok "Patched makefiles/common.mk"
+fi
+
+# == 2. Patch skaffolding/skaffold.yaml ==
+info "Checking skaffolding/skaffold.yaml..."
+if grep -q "inventory-service" "${AAP_DEV_ROOT}/skaffolding/skaffold.yaml" 2>/dev/null; then
+  skip "skaffolding/skaffold.yaml"
+else
+  cat >> "${AAP_DEV_ROOT}/skaffolding/skaffold.yaml" << 'PATCH'
+  - path: addons/inventory-service/skaffold.yaml
+    activeProfiles:
+      - name: inventory-service
+PATCH
+  ok "Patched skaffolding/skaffold.yaml"
+fi
+
+# == 3. Skaffold addon config ==
+SKAFFOLD="${AAP_DEV_ROOT}/skaffolding/addons/inventory-service"
+write_file "${SKAFFOLD}/skaffold.yaml" << 'EOF'
+---
+apiVersion: skaffold/v4beta13
+kind: Config
+metadata:
+  name: inventory-service
+build:
+  tagPolicy:
+    sha256: {}
+  local:
+    push: true
+profiles:
+  - name: inventory-service
+    activation:
+      - env: AAP_INVENTORY_SERVICE=true
+      - env: AAP_VERSION=2.6
+    requiresAllActivations: true
+    build:
+      artifacts:
+        - image: localhost:5001/aap26/inventory-service
+          context: "../../../"
+          custom:
+            buildCommand: |
+              podman build -f src/inventory-service/Containerfile \
+                -t $IMAGE \
+                src/inventory-service/ && \
+              podman push --tls-verify=false $IMAGE
             dependencies:
               paths:
                 - src/inventory-service/**/*.py
@@ -57,7 +111,7 @@ write_file() {
           - ../../../manifests/overlays/addons/inventory-service
 EOF
 
-# ── 4. manifests/base/apps/inventory-service/ ───────────────────────────────
+# == 4. K8s manifests ==
 BASE="${AAP_DEV_ROOT}/manifests/base/apps/inventory-service"
 
 write_file "${BASE}/kustomization.yaml" << 'EOF'
@@ -152,6 +206,9 @@ EOF
 
 write_file "${BASE}/k8s/plugins-pvc.yaml" << 'EOF'
 ---
+# PersistentVolumeClaim for provider plugin storage.
+# Plugins uploaded via the API are stored here so they survive
+# pod restarts and redeployments.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -213,7 +270,10 @@ spec:
           imagePullPolicy: IfNotPresent
           livenessProbe:
             exec:
-              command: [bash, -c, "pg_isready -p 5432 -d postgres"]
+              command:
+                - bash
+                - -c
+                - pg_isready -p 5432 -d postgres
             failureThreshold: 3
             initialDelaySeconds: 45
             periodSeconds: 10
@@ -311,7 +371,7 @@ spec:
                   key: password
                   name: inventory-service-postgres-configuration
             - name: INVENTORY_SERVICE_ALLOWED_HOSTS
-              value: '["localhost","127.0.0.1","0.0.0.0","inventory-service"]'
+              value: '["localhost","127.0.0.1","0.0.0.0","inventory-service",".svc.cluster.local"]'
             - name: INVENTORY_SERVICE_AAP_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -323,6 +383,10 @@ spec:
               value: "False"
             - name: INVENTORY_SERVICE_SERVICE_PREFIX
               value: "inventory"
+        # Dispatcher worker -- runs collection tasks submitted via pg_notify.
+        # Shares the /app/plugins PVC with the web container so uploaded
+        # provider plugins and their pip deps are visible to both the
+        # publisher (web) and the consumer (dispatcher).
         - name: dispatcher
           image: __INVENTORY_SERVICE_IMAGE__
           imagePullPolicy: Always
@@ -359,7 +423,7 @@ spec:
                   key: password
                   name: inventory-service-postgres-configuration
             - name: INVENTORY_SERVICE_ALLOWED_HOSTS
-              value: '["localhost","127.0.0.1","0.0.0.0","inventory-service"]'
+              value: '["localhost","127.0.0.1","0.0.0.0","inventory-service",".svc.cluster.local"]'
             - name: INVENTORY_SERVICE_AAP_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -371,6 +435,7 @@ spec:
               value: "False"
             - name: INVENTORY_SERVICE_SERVICE_PREFIX
               value: "inventory"
+
       volumes:
         - name: plugins
           persistentVolumeClaim:
@@ -398,9 +463,9 @@ spec:
           args:
             - |
               set -e
-              cat <<'PLAYBOOK' > /tmp/playbook.yaml
+              cat <<'EOF' > /tmp/playbook.yaml
               ---
-              - name: Register inventory service with AAP Gateway
+              - name: Playbook to register inventory service
                 hosts: localhost
                 connection: local
                 vars:
@@ -417,7 +482,7 @@ spec:
                     gateway_validate_certs: "{{ gateway_validate_certs }}"
                     state: "{{ gateway_state }}"
                 tasks:
-                  - name: Wait for Gateway API
+                  - name: Check if API is available and returning status 200
                     uri:
                       url: "{{ gateway_hostname }}/api/gateway/v1/me/"
                       validate_certs: "{{ gateway_validate_certs }}"
@@ -429,21 +494,21 @@ spec:
                     until: result.status == 200
                     retries: 60
                     delay: 15
-                  - name: service_type
+                  - name: Manage service_type for inventory service
                     ansible.platform.service_type:
                       name: "inventory-service"
                       ping_url: "/ping/"
                       service_index_path: "/api/inventory/"
-                  - name: service_cluster
+                  - name: Manage service_cluster for inventory service
                     ansible.platform.service_cluster:
                       name: "inventory-service"
                       service_type: "inventory-service"
-                  - name: service_node
+                  - name: Manage service_node for inventory service
                     ansible.platform.service_node:
                       name: "Node inventory-service"
                       service_cluster: "inventory-service"
                       address: "inventory-service"
-                  - name: service
+                  - name: Manage service for inventory service
                     ansible.platform.service:
                       name: "inventory service api"
                       description: "Inventory Service API"
@@ -454,7 +519,7 @@ spec:
                       service_path: "/api/inventory/"
                       service_port: 8000
                       order: 10
-                  - name: route
+                  - name: Manage route for inventory service
                     ansible.platform.route:
                       name: "inventory service ui"
                       description: "Inventory Service UI"
@@ -466,11 +531,8 @@ spec:
                       service_port: 8000
                       enable_gateway_auth: false
               ...
-              PLAYBOOK
-              ansible-playbook /tmp/playbook.yaml \
-                   -e gateway_username=$gateway_admin_username \
-                   -e gateway_password=$gateway_admin_password \
-                   -e gateway_host=$gateway_host
+              EOF
+              ansible-playbook /tmp/playbook.yaml                   -e gateway_username=$gateway_admin_username                   -e gateway_password=$gateway_admin_password                   -e gateway_host=$gateway_host
           env:
             - name: gateway_admin_username
               value: "admin"
@@ -483,7 +545,7 @@ spec:
               value: http://myaap-api.aap26.svc.cluster.local
 EOF
 
-# ── 5. manifests/overlays/addons/inventory-service/ ─────────────────────────
+# == 5. Overlay ==
 OVERLAY="${AAP_DEV_ROOT}/manifests/overlays/addons/inventory-service"
 
 write_file "${OVERLAY}/kustomization.yaml" << 'EOF'
@@ -500,5 +562,6 @@ images:
 namespace: aap26
 EOF
 
-echo -e "\n${GREEN}━━━ Setup complete ━━━${RESET}"
+echo -e "
+${GREEN}=== Setup complete ===${RESET}"
 echo "All inventory-service files wired into aap-dev. Run ./deploy.sh to deploy."
