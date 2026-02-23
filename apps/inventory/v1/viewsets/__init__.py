@@ -23,3 +23,5 @@ __all__ = [
 
 from .sighting import ResourceSightingViewSet  # noqa: F401
 from .provider_plugin import ProviderPluginViewSet  # noqa: F401
+
+from .schedule import CollectionScheduleViewSet  # noqa: F401

@@ -17,6 +17,9 @@ from apps.inventory.v1.serializers import (
 
 
 class ResourceFilter(filters.FilterSet):
+    provider = filters.UUIDFilter(field_name="provider_id", lookup_expr="exact")
+    resource_type = filters.UUIDFilter(field_name="resource_type_id", lookup_expr="exact")
+    organization = filters.UUIDFilter(field_name="organization_id", lookup_expr="exact")
     canonical_id = filters.CharFilter(lookup_expr="exact")
     canonical_id_contains = filters.CharFilter(
         field_name="canonical_id", lookup_expr="icontains"

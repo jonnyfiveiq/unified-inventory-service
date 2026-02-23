@@ -43,3 +43,4 @@ ENTRYPOINT ["/bin/sh", "entrypoint.sh"]
 # Default: run web server.  Override CMD to run the dispatcher worker:
 #   CMD ["uv", "run", "--no-sync", "python", "manage.py", "run_dispatcher"]
 CMD ["uv", "run", "--no-sync", "python", "manage.py", "runserver", "0.0.0.0:8000"]
+# trigger rebuild

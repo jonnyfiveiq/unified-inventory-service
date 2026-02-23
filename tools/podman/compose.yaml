@@ -39,6 +39,8 @@ services:
         && uv run --no-sync python manage.py runserver 0.0.0.0:5000
     ports:
       - "8000:5000"
+    volumes:
+      - 'plugins_data:/app/plugins'
     depends_on:
       postgres:
         condition: service_healthy
@@ -48,5 +50,24 @@ services:
       timeout: 5s
       retries: 10
 
+  dispatcher:
+    image: localhost/inventory-service-api
+    environment:
+      << : *common-env
+    build:
+      context: ../../
+      dockerfile: tools/podman/Containerfile.dev
+    command:
+      - /bin/bash
+      - -c
+      - >-
+        uv run --no-sync python manage.py run_dispatcher
+    volumes:
+      - 'plugins_data:/app/plugins'
+    depends_on:
+      inventory-service-api:
+        condition: service_healthy
+
 volumes:
   postgres_data: {}
+  plugins_data: {}

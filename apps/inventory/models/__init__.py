@@ -1,3 +1,4 @@
+from .schedule import CollectionSchedule
 from .collection import CollectionRun
 from .provider import Provider, ProviderInfrastructure
 from .resource import (
@@ -13,6 +14,7 @@ from .taxonomy import ResourceCategory, ResourceType, VendorTypeMapping, Propert
 
 __all__ = [
     'CollectionRun',
+    'CollectionSchedule',
     'DRIFT_TRACKED_FIELDS',
     'Provider',
     'ProviderInfrastructure',

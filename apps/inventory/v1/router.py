@@ -1,3 +1,4 @@
+from rest_framework_nested import routers as nested_routers
 """Router configuration for inventory v1 API."""
 from rest_framework.routers import DefaultRouter
 
@@ -13,6 +14,7 @@ from apps.inventory.v1.viewsets import (
     ResourceSightingViewSet,
     VendorTypeMappingViewSet,
     PropertyDefinitionViewSet,
+    CollectionScheduleViewSet,
 )
 
 router = DefaultRouter()
@@ -35,3 +37,7 @@ router.register(r'resource-sightings', ResourceSightingViewSet, basename='resour
 
 # Provider plugin registry
 router.register(r'provider-plugins', ProviderPluginViewSet, basename='providerplugin')
+
+# Nested schedules under providers
+providers_router = nested_routers.NestedDefaultRouter(router, r'providers', lookup='provider')
+providers_router.register(r'schedules', CollectionScheduleViewSet, basename='provider-schedule')

@@ -116,12 +116,28 @@ echo "  Using org: $ORG_ID"
 
 create_or_skip() {
   local name=$1 payload=$2
-  api_get "/providers/?search=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$name")"
-  EXISTING=$(json_field "['results'][0]['id']" 2>/dev/null || true)
+  # Fetch all providers and find exact name match (search= does fuzzy matching)
+  api_get "/providers/?page_size=200"
+  EXISTING=$(echo "$BODY" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+name = sys.argv[1]
+for p in data.get('results', []):
+    if p['name'] == name:
+        print(p['id'])
+        break
+" "$name" 2>/dev/null || true)
   if [ -n "$EXISTING" ] && [ "$EXISTING" != "None" ]; then
     if [ "$FORCE" = "true" ]; then
-      curl -s -o /dev/null $AUTH -X DELETE "${BASE}/providers/${EXISTING}/"
-      info "Deleted existing $name ($EXISTING) — recreating"
+      local del_code
+      del_code=$(curl -s -o /dev/null -w "%{http_code}" $AUTH -X DELETE "${BASE}/providers/${EXISTING}/")
+      if [ "$del_code" = "204" ] || [ "$del_code" = "200" ]; then
+        info "Deleted existing $name ($EXISTING)"
+      else
+        err "Failed to delete $name ($EXISTING): HTTP $del_code"
+        return
+      fi
+      sleep 0.5
     else
       info "$name already exists ($EXISTING) — skipping"
       return
@@ -157,7 +173,9 @@ seed_vmware() {
     }
   }"
   echo "  Seeding vSphere resource data..."
-  run_manage "seed_vmware_data" && ok "seed_vmware_data complete" || err "seed_vmware_data failed"
+  FLUSH_FLAG=""
+  [ "$FORCE" = "true" ] && FLUSH_FLAG="--flush"
+  run_manage "seed_vmware_data $FLUSH_FLAG" && ok "seed_vmware_data complete" || err "seed_vmware_data failed"
 }
 
 seed_aws() {

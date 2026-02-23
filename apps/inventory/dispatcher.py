@@ -92,7 +92,7 @@ def get_dispatcher_config() -> dict:
                 "max_connection_idle_seconds": 30,
             },
         },
-        "service": {
+        "service": {"process_manager_cls": "ForkServerManager",
             "pool_kwargs": {
                 "min_workers": getattr(settings, "DISPATCHER_MIN_WORKERS", 1),
                 "max_workers": getattr(settings, "DISPATCHER_MAX_WORKERS", 4),
@@ -100,6 +100,7 @@ def get_dispatcher_config() -> dict:
         },
         "producers": {
             "ControlProducer": {},
+            "SchedulerProducer": {},
         },
         "publish": {
             "default_broker": "pg_notify",
@@ -120,4 +121,14 @@ def setup_dispatcher() -> None:
 
     config = get_dispatcher_config()
     setup(config)
+    # Register our custom SchedulerProducer so dispatcherd.factories can find it
+    try:
+        from dispatcherd import producers as _dp
+        from apps.inventory.scheduler_producer import SchedulerProducer
+        if not hasattr(_dp, 'SchedulerProducer'):
+            _dp.SchedulerProducer = SchedulerProducer
+    except Exception:
+        logger.warning('Could not register SchedulerProducer')
+
     logger.info("dispatcherd configured: channel=%s", INVENTORY_CHANNEL)
+

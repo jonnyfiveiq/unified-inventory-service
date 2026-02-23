@@ -10,6 +10,7 @@ dependencies = [
     "django-ansible-base[rest_filters,jwt_consumer,resource_registry,rbac,feature_flags,api_documentation]",
     "dispatcherd[pg_notify]",
     "django-filter>=25.1",
+    "drf-nested-routers>=0.94.1",
 ]
 
 [dependency-groups]

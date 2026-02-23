@@ -1,3 +1,4 @@
+from .schedule import CollectionScheduleSerializer
 from .collection_run import CollectionRunCancelSerializer, CollectionRunSerializer
 from .drift import ResourceDriftSerializer
 from .provider import ProviderCollectSerializer, ProviderSerializer

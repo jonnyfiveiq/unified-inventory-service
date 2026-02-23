@@ -1,5 +1,4 @@
 """URL configuration for inventory v1 API."""
+from .router import router, providers_router
 
-from .router import router
-
-urlpatterns = router.urls
+urlpatterns = router.urls + providers_router.urls

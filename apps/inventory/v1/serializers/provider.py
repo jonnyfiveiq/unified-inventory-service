@@ -7,6 +7,9 @@ class ProviderSerializer(serializers.ModelSerializer):
     last_collection_status = serializers.SerializerMethodField(
         help_text="Status of the most recent collection run.",
     )
+    schedule_count = serializers.SerializerMethodField(
+        help_text="Number of active schedules on this provider.",
+    )
 
     class Meta:
         model = Provider
@@ -25,12 +28,16 @@ class ProviderSerializer(serializers.ModelSerializer):
             "modified",
             "last_refresh_at",
             "last_collection_status",
+            "schedule_count",
         ]
-        read_only_fields = ["id", "created", "modified", "last_refresh_at", "last_collection_status"]
+        read_only_fields = ["id", "created", "modified", "last_refresh_at", "last_collection_status", "schedule_count"]
 
     def get_last_collection_status(self, obj) -> str | None:
         latest = obj.collection_runs.order_by("-started_at").values("status").first()
         return latest["status"] if latest else None
+
+    def get_schedule_count(self, obj) -> int:
+        return obj.schedules.filter(enabled=True).count()
 
 
 class ProviderCollectSerializer(serializers.Serializer):
