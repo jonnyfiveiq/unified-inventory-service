@@ -294,9 +294,9 @@ def _upsert_resource(provider_model, data: ResourceData, collection_run, type_ca
 
     if not created:
         Resource.objects.filter(pk=resource.pk).update(seen_count=F("seen_count") + 1)
-    else:
-        # Auto-tag new resources with category and type from taxonomy
-        _apply_taxonomy_tags(resource, resource_type, provider_model.organization)
+
+    # Always ensure taxonomy + infrastructure tags are present (idempotent)
+    _apply_taxonomy_tags(resource, resource_type, provider_model)
 
     return resource, created
 
@@ -341,31 +341,34 @@ def _mark_stale(provider_model, seen_ems_refs: set[str]) -> int:
     return count
 
 
-def _apply_taxonomy_tags(resource, resource_type, organization) -> None:
+def _apply_taxonomy_tags(resource, resource_type, provider_model) -> None:
     """
-    Auto-tag a newly discovered resource with its taxonomy category and type.
+    Auto-tag a resource with its taxonomy category, resource type, and infrastructure.
 
-    Creates two tags in the 'type' namespace:
-      - type/category = e.g. "Compute"
-      - type/resource_type = e.g. "Virtual Machine"
+    Applies three tags in the 'type' namespace (idempotent - safe to call on every run):
+      - type/category        = e.g. "Compute", "Storage"
+      - type/resource_type   = e.g. "Virtual Machine", "Hypervisor Host"
+      - type/infrastructure  = e.g. "private_cloud", "public_cloud"
 
-    These are seeded on creation and can be edited by users afterwards.
+    Uses get_or_create so repeated calls are safe and won't duplicate tags.
     """
     from apps.inventory.models import Tag
 
+    organization = provider_model.organization
     tags_to_apply = []
 
-    # Category tag (e.g. Compute, Storage, Network)
-    if resource_type.category_name:
+    # Category tag: resource_type.category is the FK to ResourceCategory
+    category_name = getattr(resource_type.category, "name", None)
+    if category_name:
         category_tag, _ = Tag.objects.get_or_create(
             organization=organization,
             namespace="type",
             key="category",
-            value=resource_type.category_name,
+            value=category_name,
         )
         tags_to_apply.append(category_tag)
 
-    # Resource type tag (e.g. Virtual Machine, Container)
+    # Resource type tag (e.g. "Virtual Machine", "Container")
     if resource_type.name:
         type_tag, _ = Tag.objects.get_or_create(
             organization=organization,
@@ -374,6 +377,17 @@ def _apply_taxonomy_tags(resource, resource_type, organization) -> None:
             value=resource_type.name,
         )
         tags_to_apply.append(type_tag)
+
+    # Infrastructure tag from the provider (e.g. "private_cloud", "public_cloud")
+    infrastructure = getattr(provider_model, "infrastructure", None)
+    if infrastructure:
+        infra_tag, _ = Tag.objects.get_or_create(
+            organization=organization,
+            namespace="type",
+            key="infrastructure",
+            value=infrastructure,
+        )
+        tags_to_apply.append(infra_tag)
 
     if tags_to_apply:
         resource.tags.add(*tags_to_apply)
