@@ -343,51 +343,47 @@ def _mark_stale(provider_model, seen_ems_refs: set[str]) -> int:
 
 def _apply_taxonomy_tags(resource, resource_type, provider_model) -> None:
     """
-    Auto-tag a resource with its taxonomy category, resource type, and infrastructure.
-
-    Applies three tags in the 'type' namespace (idempotent - safe to call on every run):
-      - type/category        = e.g. "Compute", "Storage"
-      - type/resource_type   = e.g. "Virtual Machine", "Hypervisor Host"
-      - type/infrastructure  = e.g. "private_cloud", "public_cloud"
-
-    Uses get_or_create so repeated calls are safe and won't duplicate tags.
+    Auto-tag each resource with three default taxonomy tags (idempotent, runs every collection):
+      type/infrastructure_type   e.g. private_cloud, public_cloud
+      type/infrastructure_bucket e.g. Compute, Storage
+      type/device_type           e.g. Virtual Machine, Hypervisor Host
     """
     from apps.inventory.models import Tag
+    from apps.core.models.organization import Organization
 
     organization = provider_model.organization
+    if organization is None:
+        organization = Organization.objects.filter(name="Default").first()
+    if organization is None:
+        logger.warning("_apply_taxonomy_tags: no org found, skipping resource %s", resource.id)
+        return
+
     tags_to_apply = []
 
-    # Category tag: resource_type.category is the FK to ResourceCategory
-    category_name = getattr(resource_type.category, "name", None)
-    if category_name:
-        category_tag, _ = Tag.objects.get_or_create(
-            organization=organization,
-            namespace="type",
-            key="category",
-            value=category_name,
-        )
-        tags_to_apply.append(category_tag)
-
-    # Resource type tag (e.g. "Virtual Machine", "Container")
-    if resource_type.name:
-        type_tag, _ = Tag.objects.get_or_create(
-            organization=organization,
-            namespace="type",
-            key="resource_type",
-            value=resource_type.name,
-        )
-        tags_to_apply.append(type_tag)
-
-    # Infrastructure tag from the provider (e.g. "private_cloud", "public_cloud")
     infrastructure = getattr(provider_model, "infrastructure", None)
     if infrastructure:
-        infra_tag, _ = Tag.objects.get_or_create(
-            organization=organization,
-            namespace="type",
-            key="infrastructure",
-            value=infrastructure,
+        tag, _ = Tag.objects.get_or_create(
+            organization=organization, namespace="type",
+            key="infrastructure_type", value=infrastructure,
         )
-        tags_to_apply.append(infra_tag)
+        tags_to_apply.append(tag)
+
+    category_name = None
+    if getattr(resource_type, "category_id", None):
+        category_name = getattr(resource_type.category, "name", None)
+    if category_name:
+        tag, _ = Tag.objects.get_or_create(
+            organization=organization, namespace="type",
+            key="infrastructure_bucket", value=category_name,
+        )
+        tags_to_apply.append(tag)
+
+    if resource_type.name:
+        tag, _ = Tag.objects.get_or_create(
+            organization=organization, namespace="type",
+            key="device_type", value=resource_type.name,
+        )
+        tags_to_apply.append(tag)
 
     if tags_to_apply:
         resource.tags.add(*tags_to_apply)
