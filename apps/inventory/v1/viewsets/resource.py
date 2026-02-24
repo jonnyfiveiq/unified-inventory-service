@@ -61,7 +61,7 @@ class ResourceFilter(filters.FilterSet):
 
 
 class ResourceViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
-    queryset = Resource.objects.select_related("resource_type", "provider").all()
+    queryset = Resource.objects.select_related("resource_type", "provider").prefetch_related("tags").all()
     serializer_class = ResourceSerializer
     permission_classes = [IsAuthenticated]
     filterset_class = ResourceFilter

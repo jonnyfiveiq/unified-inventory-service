@@ -294,6 +294,9 @@ def _upsert_resource(provider_model, data: ResourceData, collection_run, type_ca
 
     if not created:
         Resource.objects.filter(pk=resource.pk).update(seen_count=F("seen_count") + 1)
+    else:
+        # Auto-tag new resources with category and type from taxonomy
+        _apply_taxonomy_tags(resource, resource_type, provider_model.organization)
 
     return resource, created
 
@@ -336,3 +339,41 @@ def _mark_stale(provider_model, seen_ems_refs: set[str]) -> int:
     if count:
         logger.info("Marked %d stale resources as unknown", count)
     return count
+
+
+def _apply_taxonomy_tags(resource, resource_type, organization) -> None:
+    """
+    Auto-tag a newly discovered resource with its taxonomy category and type.
+
+    Creates two tags in the 'type' namespace:
+      - type/category = e.g. "Compute"
+      - type/resource_type = e.g. "Virtual Machine"
+
+    These are seeded on creation and can be edited by users afterwards.
+    """
+    from apps.inventory.models import Tag
+
+    tags_to_apply = []
+
+    # Category tag (e.g. Compute, Storage, Network)
+    if resource_type.category_name:
+        category_tag, _ = Tag.objects.get_or_create(
+            organization=organization,
+            namespace="type",
+            key="category",
+            value=resource_type.category_name,
+        )
+        tags_to_apply.append(category_tag)
+
+    # Resource type tag (e.g. Virtual Machine, Container)
+    if resource_type.name:
+        type_tag, _ = Tag.objects.get_or_create(
+            organization=organization,
+            namespace="type",
+            key="resource_type",
+            value=resource_type.name,
+        )
+        tags_to_apply.append(type_tag)
+
+    if tags_to_apply:
+        resource.tags.add(*tags_to_apply)

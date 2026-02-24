@@ -9,9 +9,11 @@ from apps.inventory.v1.viewsets import (
     ResourceCategoryViewSet,
     ResourceDriftViewSet,
     ResourceRelationshipViewSet,
+    ResourceTagViewSet,
     ResourceTypeViewSet,
     ResourceViewSet,
     ResourceSightingViewSet,
+    TagViewSet,
     VendorTypeMappingViewSet,
     PropertyDefinitionViewSet,
     CollectionScheduleViewSet,
@@ -24,6 +26,9 @@ router.register(r'providers', ProviderViewSet, basename='provider')
 router.register(r'collection-runs', CollectionRunViewSet, basename='collectionrun')
 router.register(r'resources', ResourceViewSet, basename='resource')
 router.register(r'resource-relationships', ResourceRelationshipViewSet, basename='resourcerelationship')
+
+# Tags
+router.register(r'tags', TagViewSet, basename='tag')
 
 # Drift tracking
 router.register(r'resource-drift', ResourceDriftViewSet, basename='resourcedrift')
@@ -41,3 +46,7 @@ router.register(r'provider-plugins', ProviderPluginViewSet, basename='providerpl
 # Nested schedules under providers
 providers_router = nested_routers.NestedDefaultRouter(router, r'providers', lookup='provider')
 providers_router.register(r'schedules', CollectionScheduleViewSet, basename='provider-schedule')
+
+# Nested tags under resources
+resources_router = nested_routers.NestedDefaultRouter(router, r'resources', lookup='resource')
+resources_router.register(r'tags', ResourceTagViewSet, basename='resource-tag')

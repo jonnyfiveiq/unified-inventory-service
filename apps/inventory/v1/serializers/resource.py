@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from apps.inventory.models import Resource, ResourceRelationship, ResourceSighting
+from apps.inventory.v1.serializers.tags import TagSerializer
 
 
 class ResourceSerializer(serializers.ModelSerializer):
@@ -17,6 +18,7 @@ class ResourceSerializer(serializers.ModelSerializer):
         source="provider",
         read_only=True,
     )
+    tags = TagSerializer(many=True, read_only=True)
 
     class Meta:
         model = Resource
@@ -60,6 +62,7 @@ class ResourceSerializer(serializers.ModelSerializer):
             "deleted_at",
             "is_deleted",
             "organization",
+            "tags",
         ]
         read_only_fields = fields
 

@@ -3,6 +3,7 @@ from .collection_run import CollectionRunCancelSerializer, CollectionRunSerializ
 from .drift import ResourceDriftSerializer
 from .provider import ProviderCollectSerializer, ProviderSerializer
 from .resource import ResourceRelationshipSerializer, ResourceSerializer, ResourceSightingSerializer
+from .tags import TagSerializer
 from .taxonomy import (
     ResourceCategorySerializer,
     ResourceTypeSerializer,
@@ -27,6 +28,7 @@ __all__ = [
     'ResourceSerializer',
     'ResourceSightingSerializer',
     'ResourceTypeSerializer',
+    'TagSerializer',
     'VendorTypeMappingSerializer',
     'PropertyDefinitionSerializer',
 ]

@@ -2,6 +2,7 @@ from .collection_run import CollectionRunViewSet
 from .drift import ResourceDriftViewSet
 from .provider import ProviderViewSet
 from .resource import ResourceRelationshipViewSet, ResourceViewSet
+from .tags import TagViewSet, ResourceTagViewSet
 from .taxonomy import (
     ResourceCategoryViewSet,
     ResourceTypeViewSet,
@@ -15,8 +16,10 @@ __all__ = [
     'ResourceCategoryViewSet',
     'ResourceDriftViewSet',
     'ResourceRelationshipViewSet',
+    'ResourceTagViewSet',
     'ResourceTypeViewSet',
     'ResourceViewSet',
+    'TagViewSet',
     'VendorTypeMappingViewSet',
     'PropertyDefinitionViewSet',
 ]
