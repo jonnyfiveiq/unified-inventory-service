@@ -1,0 +1,332 @@
+"""Dispatcherd task for processing metrics-utility tarball imports."""
+import csv
+import io
+import logging
+import tarfile
+import traceback
+from datetime import datetime
+from pathlib import Path
+
+import django
+from django.db.models import Q
+from django.utils import timezone
+
+logger = logging.getLogger('apps.inventory.tasks')
+
+try:
+    from apps.inventory.dispatcher import setup_dispatcher
+    setup_dispatcher()
+    from dispatcherd.publish import task
+except ImportError:
+    logger.debug('dispatcherd not available')
+
+    def task(*args, **kwargs):
+        def wrapper(fn):
+            return fn
+        return wrapper
+
+
+def _ensure_django():
+    try:
+        django.setup()
+    except RuntimeError:
+        pass
+
+
+def _is_ip_address(value):
+    parts = value.split('.')
+    if len(parts) != 4:
+        return False
+    return all(p.isdigit() and 0 <= int(p) <= 255 for p in parts)
+
+
+def _parse_datetime(value):
+    if not value or not value.strip():
+        return None
+    value = value.strip()
+    for fmt in (
+        '%Y-%m-%d %H:%M:%S.%f',
+        '%Y-%m-%d %H:%M:%S',
+        '%Y-%m-%dT%H:%M:%S.%f',
+        '%Y-%m-%dT%H:%M:%S',
+        '%Y-%m-%d',
+    ):
+        try:
+            return timezone.make_aware(datetime.strptime(value, fmt))
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def _extract_csvs_from_tarball(file_path):
+    """Extract all CSV files from a metrics-utility tarball."""
+    all_csvs = {}
+
+    def _read_csv(name, fileobj):
+        text = fileobj.read().decode('utf-8', errors='replace')
+        reader = csv.DictReader(io.StringIO(text))
+        rows = list(reader)
+        if rows:
+            base_name = Path(name).name
+            if base_name in all_csvs:
+                all_csvs[base_name].extend(rows)
+            else:
+                all_csvs[base_name] = rows
+
+    try:
+        with tarfile.open(file_path, 'r:*') as tar:
+            for member in tar.getmembers():
+                if member.name.endswith('.csv'):
+                    f = tar.extractfile(member)
+                    if f:
+                        _read_csv(member.name, f)
+                elif member.name.endswith('.tar.gz') or member.name.endswith('.tgz'):
+                    outer_f = tar.extractfile(member)
+                    if outer_f:
+                        try:
+                            with tarfile.open(fileobj=outer_f, mode='r:*') as inner_tar:
+                                for inner_member in inner_tar.getmembers():
+                                    if inner_member.name.endswith('.csv'):
+                                        inner_f = inner_tar.extractfile(inner_member)
+                                        if inner_f:
+                                            _read_csv(inner_member.name, inner_f)
+                        except tarfile.TarError:
+                            logger.warning('Could not read nested tarball: %s', member.name)
+    except tarfile.TarError as exc:
+        raise ValueError(f'Cannot read tarball: {exc}')
+
+    return all_csvs
+
+
+def _build_host_roster(csvs):
+    """Build a deduplicated roster of unique hosts from CSV data."""
+    roster = {}
+
+    def _ensure(hostname):
+        if hostname not in roster:
+            roster[hostname] = {
+                'jobs': [],
+                'first_seen': None,
+                'last_seen': None,
+                'total_runs': 0,
+            }
+
+    for name, rows in csvs.items():
+        if 'event' in name.lower():
+            for row in rows:
+                host = (row.get('host_name') or row.get('host') or '').strip()
+                if not host:
+                    continue
+                _ensure(host)
+                roster[host]['total_runs'] += 1
+                dt = _parse_datetime(row.get('created') or row.get('modified') or '')
+                if dt:
+                    if roster[host]['first_seen'] is None or dt < roster[host]['first_seen']:
+                        roster[host]['first_seen'] = dt
+                    if roster[host]['last_seen'] is None or dt > roster[host]['last_seen']:
+                        roster[host]['last_seen'] = dt
+
+    for name, rows in csvs.items():
+        if 'host_metric' in name.lower():
+            for row in rows:
+                host = (row.get('hostname') or row.get('host_name') or '').strip()
+                if not host:
+                    continue
+                _ensure(host)
+                dt = _parse_datetime(row.get('last_automation') or '')
+                if dt and (roster[host]['last_seen'] is None or dt > roster[host]['last_seen']):
+                    roster[host]['last_seen'] = dt
+
+    return roster
+
+
+AUTO_MATCH_THRESHOLD = 80
+
+
+def _match_host_to_resource(hostname, org_id, learned_mappings, source_label):
+    from apps.inventory.models import Resource
+
+    mapping_key = (hostname, source_label)
+    global_key = (hostname, '')
+    if mapping_key in learned_mappings:
+        return learned_mappings[mapping_key], 100, 'learned mapping (source-specific)'
+    if global_key in learned_mappings:
+        return learned_mappings[global_key], 100, 'learned mapping (global)'
+
+    base_qs = Resource.objects.filter(organization_id=org_id, deleted_at__isnull=True)
+
+    exact_name = base_qs.filter(name__iexact=hostname)
+    if exact_name.count() == 1:
+        return exact_name.first(), 95, 'exact name match'
+
+    exact_fqdn = base_qs.filter(fqdn__iexact=hostname)
+    if exact_fqdn.count() == 1:
+        return exact_fqdn.first(), 95, 'exact FQDN match'
+
+    exact_ansible = base_qs.filter(ansible_host__iexact=hostname)
+    if exact_ansible.count() == 1:
+        return exact_ansible.first(), 95, 'exact ansible_host match'
+
+    if _is_ip_address(hostname):
+        ip_match = base_qs.filter(ip_addresses__contains=[hostname])
+        if ip_match.count() == 1:
+            return ip_match.first(), 90, 'IP address match'
+        ip_ansible = base_qs.filter(ansible_host=hostname)
+        if ip_ansible.count() == 1:
+            return ip_ansible.first(), 90, 'ansible_host IP match'
+
+    if not _is_ip_address(hostname) and '.' not in hostname:
+        prefix_match = base_qs.filter(
+            Q(fqdn__istartswith=hostname + '.') |
+            Q(name__istartswith=hostname + '.')
+        )
+        if prefix_match.count() == 1:
+            return prefix_match.first(), 70, 'hostname prefix of FQDN'
+
+    if '.' in hostname:
+        short_name = hostname.split('.')[0]
+        short_match = base_qs.filter(name__iexact=short_name)
+        if short_match.count() == 1:
+            return short_match.first(), 65, 'FQDN short name matches resource'
+
+    if len(hostname) >= 4 and not _is_ip_address(hostname):
+        contains_match = base_qs.filter(
+            Q(name__icontains=hostname) |
+            Q(fqdn__icontains=hostname) |
+            Q(ansible_host__icontains=hostname)
+        )
+        if contains_match.count() == 1:
+            return contains_match.first(), 40, 'partial name/FQDN contains match'
+        elif contains_match.count() > 1:
+            return contains_match.first(), 25, f'ambiguous contains match ({contains_match.count()} candidates)'
+
+    return None, 0, ''
+
+
+@task(queue='inventory')
+def process_metrics_import(metrics_import_id):
+    """Process an uploaded metrics-utility tarball."""
+    _ensure_django()
+    from apps.inventory.models import AutomationRecord
+    from apps.inventory.models.metrics_import import (
+        HostMapping, MetricsImport, PendingMatch,
+    )
+
+    try:
+        imp = MetricsImport.objects.get(pk=metrics_import_id)
+    except MetricsImport.DoesNotExist:
+        logger.error('MetricsImport %s not found', metrics_import_id)
+        return {'error': f'MetricsImport {metrics_import_id} not found'}
+
+    if imp.status != MetricsImport.Status.PENDING:
+        logger.warning('MetricsImport %s already %s', imp.pk, imp.status)
+        return {'skipped': True, 'status': imp.status}
+
+    imp.status = MetricsImport.Status.PROCESSING
+    imp.save(update_fields=['status'])
+    logger.info('Processing metrics import: %s (%s)', imp.filename, imp.pk)
+
+    errors = []
+    stats = {
+        'csvs_found': 0, 'total_csv_rows': 0, 'unique_hosts': 0,
+        'auto_matched': 0, 'pending_review': 0, 'unmatched': 0,
+        'automation_records_created': 0, 'learned_mapping_hits': 0,
+    }
+
+    try:
+        csvs = _extract_csvs_from_tarball(imp.file_path)
+        stats['csvs_found'] = len(csvs)
+        stats['total_csv_rows'] = sum(len(rows) for rows in csvs.values())
+        logger.info('Extracted %d CSVs, %d rows', stats['csvs_found'], stats['total_csv_rows'])
+
+        if not csvs:
+            errors.append('No CSV files found in the tarball.')
+            imp.status = MetricsImport.Status.FAILED
+            imp.error_log = '\n'.join(errors)
+            imp.stats = stats
+            imp.processed_at = timezone.now()
+            imp.save(update_fields=['status', 'error_log', 'stats', 'processed_at'])
+            return {'error': 'No CSV files found'}
+
+        roster = _build_host_roster(csvs)
+        stats['unique_hosts'] = len(roster)
+        logger.info('Built roster of %d unique hosts', len(roster))
+
+        mappings_qs = HostMapping.objects.filter(
+            organization=imp.organization,
+        ).select_related('resource')
+        learned_mappings = {(m.aap_host_name, m.source_label): m.resource for m in mappings_qs}
+
+        auto_records = []
+        pending_records = []
+
+        for hostname, host_data in roster.items():
+            resource, confidence, reason = _match_host_to_resource(
+                hostname, imp.organization_id, learned_mappings, imp.source_label
+            )
+
+            raw = {
+                'total_events': host_data.get('total_runs', 0),
+                'first_seen': host_data['first_seen'].isoformat() if host_data.get('first_seen') else None,
+                'last_seen': host_data['last_seen'].isoformat() if host_data.get('last_seen') else None,
+            }
+
+            if confidence >= AUTO_MATCH_THRESHOLD and resource is not None:
+                stats['auto_matched'] += 1
+                if reason.startswith('learned'):
+                    stats['learned_mapping_hits'] += 1
+                auto_records.append(AutomationRecord(
+                    resource=resource,
+                    source_name=imp.source_label or imp.filename,
+                    correlation_type='direct',
+                    correlation_key=f'metrics-import:{hostname}',
+                    correlation_confidence='exact' if confidence >= 90 else 'probable',
+                    aap_host_name=hostname,
+                    aap_job_id=0,
+                    aap_job_name=f'Metrics import: {imp.filename}',
+                    aap_job_status='aggregated',
+                    aap_job_started_at=host_data.get('first_seen'),
+                    aap_job_finished_at=host_data.get('last_seen'),
+                    automation_details={'import_id': str(imp.pk), 'match_reason': reason, 'match_confidence': confidence, **raw},
+                    organization=imp.organization,
+                ))
+            elif resource is not None and confidence > 0:
+                stats['pending_review'] += 1
+                pending_records.append(PendingMatch(
+                    metrics_import=imp, aap_host_name=hostname,
+                    candidate_resource=resource, match_reason=reason,
+                    match_score=confidence, raw_data=raw,
+                ))
+            else:
+                stats['unmatched'] += 1
+                pending_records.append(PendingMatch(
+                    metrics_import=imp, aap_host_name=hostname,
+                    candidate_resource=None, match_reason='no match found',
+                    match_score=0, raw_data=raw,
+                ))
+
+        if auto_records:
+            created = AutomationRecord.objects.bulk_create(auto_records, ignore_conflicts=True)
+            stats['automation_records_created'] = len(created)
+            logger.info('Created %d AutomationRecords', len(created))
+
+        if pending_records:
+            PendingMatch.objects.bulk_create(pending_records)
+            logger.info('Created %d PendingMatch records', len(pending_records))
+
+        imp.status = MetricsImport.Status.COMPLETED
+        imp.stats = stats
+        imp.error_log = '\n'.join(errors) if errors else ''
+        imp.processed_at = timezone.now()
+        imp.save(update_fields=['status', 'stats', 'error_log', 'processed_at'])
+        logger.info('MetricsImport %s completed: %s', imp.pk, stats)
+        return stats
+
+    except Exception as exc:
+        imp.status = MetricsImport.Status.FAILED
+        imp.error_log = f'{exc}\n\n{traceback.format_exc()}'
+        imp.stats = stats
+        imp.processed_at = timezone.now()
+        imp.save(update_fields=['status', 'error_log', 'stats', 'processed_at'])
+        logger.exception('MetricsImport %s failed', imp.pk)
+        return {'error': str(exc)}

@@ -258,7 +258,7 @@ seed_openshift() {
   header "OpenShift"
   create_or_skip "Test OpenShift - cluster-01" "{
     \"name\": \"Test OpenShift - cluster-01\",
-    \"infrastructure\": \"on_premise\",
+    \"infrastructure\": \"private_cloud\",
     \"vendor\": \"redhat\",
     \"provider_type\": \"openshift\",
     \"endpoint\": \"https://api.cluster-01.test.local:6443\",

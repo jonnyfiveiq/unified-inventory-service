@@ -106,6 +106,7 @@ def _previous_run(provider_model, current_run):
 def _do_collection(run) -> dict:
     from inventory_providers import registry
     from inventory_providers.base import CollectionResult, ProviderCredential
+    from apps.inventory.collector import _apply_taxonomy_tags
     from apps.inventory.models import (
         DRIFT_TRACKED_FIELDS,
         Resource,
@@ -140,7 +141,8 @@ def _do_collection(run) -> dict:
             rt, _ = ResourceType.objects.get_or_create(
                 slug=slug, defaults={'name': slug.replace('_', ' ').title()}
             )
-            rt_cache[slug] = rt
+            # Refresh with select_related so category is available for taxonomy tagging
+            rt_cache[slug] = ResourceType.objects.select_related('category').get(pk=rt.pk)
         return rt_cache[slug]
 
     import sys
@@ -240,6 +242,9 @@ def _do_collection(run) -> dict:
                 else:
                     result.unchanged += 1
 
+            # Apply taxonomy tags (idempotent - safe every run)
+            _apply_taxonomy_tags(resource, rt, provider_model)
+
             ResourceSighting.objects.create(
                 resource=resource,
                 collection_run=run,
@@ -302,3 +307,41 @@ def _do_collection(run) -> dict:
     r = result.as_dict()
     r['removed'] = deleted_count
     return r
+
+
+# ---------------------------------------------------------------------------
+# Automation Correlation Engine (Milestone 2)
+# ---------------------------------------------------------------------------
+
+# ── UUID extraction helpers ──────────────────────────────────────────────
+
+_UUID_FACT_PATHS = [
+    ("ansible_product_uuid",),
+    ("ansible_product_serial",),
+    ("dmi", "system", "uuid"),
+    ("ansible_facts", "dmi", "system", "uuid"),
+]
+
+
+def _extract_smbios_uuid(facts: dict):
+    """Extract SMBIOS UUID from AAP host ansible_facts.
+
+    Tries multiple fact paths in priority order.  Returns a normalised
+    lowercase UUID string, or None if not found.
+    """
+    if not facts:
+        return None
+    for path in _UUID_FACT_PATHS:
+        val = facts
+        for key in path:
+            if isinstance(val, dict):
+                val = val.get(key)
+            else:
+                val = None
+                break
+        if val and isinstance(val, str) and len(val) >= 32:
+            normalised = val.strip().lower()
+            if normalised.replace("-", "").replace("0", "") == "":
+                continue
+            return normalised
+    return None

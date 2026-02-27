@@ -41,6 +41,8 @@ services:
       - "8000:5000"
     volumes:
       - 'plugins_data:/app/plugins'
+      - '../../apps:/app/apps:ro'
+      - '../../inventory_service:/app/inventory_service:ro'
     depends_on:
       postgres:
         condition: service_healthy
@@ -64,6 +66,8 @@ services:
         uv run --no-sync python manage.py run_dispatcher
     volumes:
       - 'plugins_data:/app/plugins'
+      - '../../apps:/app/apps:ro'
+      - '../../inventory_service:/app/inventory_service:ro'
     depends_on:
       inventory-service-api:
         condition: service_healthy

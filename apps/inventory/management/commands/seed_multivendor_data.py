@@ -31,6 +31,8 @@ from apps.inventory.models import (
     ResourceType,
 )
 
+from apps.inventory.collector import _apply_taxonomy_tags
+
 
 # Deterministic UUIDs for canonical_id (seeded from name)
 def _canon(name):
@@ -392,7 +394,7 @@ OPENSTACK_RELATIONSHIPS = [
 
 OPENSHIFT_PROVIDER = {
     "name": "OpenShift Production - ocp4.prod.local", "vendor": "openshift",
-    "infrastructure": "on_premise", "provider_type": "openshift",
+    "infrastructure": "private_cloud", "provider_type": "openshift",
     "endpoint": "https://api.ocp4.prod.local:6443",
     "credential_ref": "aap-credential://ocp-prod",
     "connection_config": {"cluster_name": "ocp4-prod", "api_version": "v1"},
@@ -568,7 +570,7 @@ class Command(BaseCommand):
         # ── Create Resources ───────────────────────────────────────────
         resource_map = {}
         for rdata in resources_data:
-            rt = ResourceType.objects.filter(slug=rdata["type"]).first()
+            rt = ResourceType.objects.select_related('category').filter(slug=rdata["type"]).first()
             if not rt:
                 self.stderr.write(
                     f"    WARNING: ResourceType slug '{rdata['type']}' not found. Skipping '{rdata['name']}'."
@@ -620,6 +622,7 @@ class Command(BaseCommand):
                 },
             )
             resource_map[rdata["name"]] = resource
+            _apply_taxonomy_tags(resource, rt, provider)
 
             # ── Sightings for each collection run ──────────────────────
             for run in runs:

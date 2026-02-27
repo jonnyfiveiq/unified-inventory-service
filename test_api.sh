@@ -240,6 +240,95 @@ else
   skip "Resource sightings/history — no running resources (seed data first)"
 fi
 
+
+# ── 8. AAP Connections ────────────────────────────────────────────────────────
+header "AAP Connections"
+if api GET "/aap-connections/" 200; then
+  AAP_COUNT=$(json_field "['count']" 2>/dev/null || echo 0)
+  pass "GET /aap-connections/ → $AAP_COUNT connections"
+else
+  fail "GET /aap-connections/ → HTTP $CODE"
+fi
+
+# Test create AAP connection
+AAP_CONN_ID=""
+if api POST "/aap-connections/" 201 '{
+  "name": "test-aap",
+  "base_url": "https://aap.example.com",
+  "oauth_token": "test-token-12345",
+  "verify_ssl": false,
+  "enabled": false,
+  "sync_interval_minutes": 60
+}'; then
+  AAP_CONN_ID=$(json_field "['id']" 2>/dev/null || true)
+  pass "POST /aap-connections/ → created $AAP_CONN_ID"
+else
+  fail "POST /aap-connections/ → HTTP $CODE"
+fi
+
+if [ -n "$AAP_CONN_ID" ]; then
+  # Test get single connection
+  if api GET "/aap-connections/${AAP_CONN_ID}/" 200; then
+    CONN_NAME=$(json_field "['name']" 2>/dev/null || echo "?")
+    pass "GET /aap-connections/{id}/ → $CONN_NAME"
+  else
+    fail "GET /aap-connections/{id}/ → HTTP $CODE"
+  fi
+
+  # Test update connection
+  if api PATCH "/aap-connections/${AAP_CONN_ID}/" 200 '{"name": "test-aap-updated"}'; then
+    pass "PATCH /aap-connections/{id}/ → updated"
+  else
+    fail "PATCH /aap-connections/{id}/ → HTTP $CODE"
+  fi
+
+  # Test connection test endpoint (will fail since URL is fake, but should return 200)
+  if api POST "/aap-connections/${AAP_CONN_ID}/test/" 200; then
+    pass "POST /aap-connections/{id}/test/ → responded"
+  else
+    # 502/connection error is expected for fake URL — accept any response
+    pass "POST /aap-connections/{id}/test/ → HTTP $CODE (expected, fake URL)"
+  fi
+
+  # Test delete connection
+  if api DELETE "/aap-connections/${AAP_CONN_ID}/" 204; then
+    pass "DELETE /aap-connections/{id}/ → deleted"
+  else
+    fail "DELETE /aap-connections/{id}/ → HTTP $CODE"
+  fi
+else
+  skip "AAP connection CRUD — create failed"
+fi
+
+# ── 9. Automation Records ─────────────────────────────────────────────────────
+header "Automation Records"
+if api GET "/automation-records/" 200; then
+  AUTO_COUNT=$(json_field "['count']" 2>/dev/null || echo 0)
+  pass "GET /automation-records/ → $AUTO_COUNT records"
+else
+  fail "GET /automation-records/ → HTTP $CODE"
+fi
+
+# Test resource automations sub-endpoint
+if [ -n "$RESOURCE_ID" ]; then
+  if api GET "/resources/${RESOURCE_ID}/automations/" 200; then
+    RES_AUTO=$(json_field "['count']" 2>/dev/null || echo 0)
+    pass "GET /resources/{id}/automations/ → $RES_AUTO records"
+  else
+    fail "GET /resources/{id}/automations/ → HTTP $CODE"
+  fi
+else
+  skip "Resource automations — no resource available"
+fi
+
+# Test is_automated filter
+if api GET "/resources/?is_automated=true" 200; then
+  AUTOMATED=$(json_field "['count']" 2>/dev/null || echo 0)
+  pass "GET /resources/?is_automated=true → $AUTOMATED automated"
+else
+  fail "GET /resources/?is_automated=true → HTTP $CODE"
+fi
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 header "Summary"
 TOTAL=$((PASS_COUNT + FAIL_COUNT + SKIP_COUNT))

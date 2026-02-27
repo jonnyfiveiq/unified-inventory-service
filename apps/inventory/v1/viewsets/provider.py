@@ -13,6 +13,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
+from django.db.models import Count
 from apps.inventory.models import CollectionRun, Provider
 from apps.inventory.v1.serializers import (
     CollectionRunSerializer,
@@ -25,6 +26,9 @@ logger = logging.getLogger("apps.inventory.views")
 
 class ProviderViewSet(ModelViewSet):
     queryset = Provider.objects.all()
+
+    def get_queryset(self):
+        return super().get_queryset().annotate(resource_count=Count("resources"))
     serializer_class = ProviderSerializer
     permission_classes = [IsAuthenticated]
     filterset_fields = ["vendor", "infrastructure", "enabled", "organization"]

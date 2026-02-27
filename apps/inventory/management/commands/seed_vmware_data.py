@@ -28,6 +28,8 @@ from apps.inventory.models import (
     ResourceType,
 )
 
+from apps.inventory.collector import _apply_taxonomy_tags
+
 
 # ── VMware vSphere Inventory Data ──────────────────────────────────────────
 # Modelled on a realistic lab/production vSphere environment
@@ -292,7 +294,7 @@ class Command(BaseCommand):
         for slug in ["virtual_machine", "hypervisor_host", "block_storage",
                       "container_orchestration_platform", "auto_scaling_group"]:
             try:
-                rt[slug] = ResourceType.objects.get(slug=slug)
+                rt[slug] = ResourceType.objects.select_related('category').get(slug=slug)
             except ResourceType.DoesNotExist:
                 self.stderr.write(self.style.ERROR(
                     f"  ResourceType '{slug}' not found. Run migrations first."))
@@ -325,6 +327,7 @@ class Command(BaseCommand):
                     organization=org,
                 )
                 resources[cluster_data["name"]] = cluster
+                _apply_taxonomy_tags(cluster, rt["container_orchestration_platform"], provider)
                 self.stdout.write(f"    Cluster: {cluster.name}")
 
                 # Hosts
@@ -361,6 +364,7 @@ class Command(BaseCommand):
                         organization=org,
                     )
                     resources[host_data["name"]] = host
+                    _apply_taxonomy_tags(host, rt["hypervisor_host"], provider)
                     self.stdout.write(f"      Host: {host.name} ({host_data['cpu_count']} CPU, {host_data['memory_mb'] // 1024}GB RAM)")
 
                     # host → cluster: part_of
@@ -391,6 +395,7 @@ class Command(BaseCommand):
                         organization=org,
                     )
                     resources[pool_data["name"]] = pool
+                    _apply_taxonomy_tags(pool, rt["auto_scaling_group"], provider)
                     self.stdout.write(f"      Pool: {pool.name}")
 
                     # pool → cluster: part_of
@@ -423,6 +428,7 @@ class Command(BaseCommand):
                     organization=org,
                 )
                 resources[ds_data["name"]] = ds
+                _apply_taxonomy_tags(ds, rt["block_storage"], provider)
                 self.stdout.write(f"    Datastore: {ds.name} ({ds_data['type']}, {ds_data['capacity_gb']}GB)")
 
         # VMs
@@ -470,6 +476,7 @@ class Command(BaseCommand):
                 organization=org,
             )
             resources[vm_data["name"]] = vm
+            _apply_taxonomy_tags(vm, rt["virtual_machine"], provider)
             state_icon = "🟢" if vm_data["state"] == "running" else "🔴" if vm_data["state"] == "stopped" else "🟡"
             self.stdout.write(f"    {state_icon} {vm.name} ({vm_data['os_name']}, {vm_data['cpu']}vCPU/{vm_data['mem']//1024}GB)")
 

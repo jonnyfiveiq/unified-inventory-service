@@ -342,48 +342,53 @@ def _mark_stale(provider_model, seen_ems_refs: set[str]) -> int:
 
 
 def _apply_taxonomy_tags(resource, resource_type, provider_model) -> None:
-    """
-    Auto-tag each resource with three default taxonomy tags (idempotent, runs every collection):
-      type/infrastructure_type   e.g. private_cloud, public_cloud
-      type/infrastructure_bucket e.g. Compute, Storage
-      type/device_type           e.g. Virtual Machine, Hypervisor Host
-    """
+    """Auto-tag each resource with taxonomy tags (idempotent)."""
     from apps.inventory.models import Tag
     from apps.core.models.organization import Organization
+    try:
+        organization = provider_model.organization
+        if organization is None:
+            organization = Organization.objects.filter(name='Default').first()
+        if organization is None:
+            logger.warning('_apply_taxonomy_tags: no org found for resource %s', resource.id)
+            return
 
-    organization = provider_model.organization
-    if organization is None:
-        organization = Organization.objects.filter(name="Default").first()
-    if organization is None:
-        logger.warning("_apply_taxonomy_tags: no org found, skipping resource %s", resource.id)
-        return
+        tags_to_apply = []
+        infrastructure = getattr(provider_model, 'infrastructure', None)
+        logger.debug('_apply_taxonomy_tags: resource=%s org=%s infra=%s rt=%s',
+                     resource.name, organization, infrastructure, resource_type)
 
-    tags_to_apply = []
+        if infrastructure:
+            tag, _ = Tag.objects.get_or_create(
+                organization=organization, namespace='type',
+                key='infrastructure_type', value=infrastructure,
+            )
+            tags_to_apply.append(tag)
 
-    infrastructure = getattr(provider_model, "infrastructure", None)
-    if infrastructure:
-        tag, _ = Tag.objects.get_or_create(
-            organization=organization, namespace="type",
-            key="infrastructure_type", value=infrastructure,
-        )
-        tags_to_apply.append(tag)
+        if resource_type is None:
+            logger.warning('_apply_taxonomy_tags: resource_type is None for %s', resource.name)
+        else:
+            category_name = None
+            if getattr(resource_type, 'category_id', None):
+                category_name = getattr(resource_type.category, 'name', None)
+            if category_name:
+                tag, _ = Tag.objects.get_or_create(
+                    organization=organization, namespace='type',
+                    key='infrastructure_bucket', value=category_name,
+                )
+                tags_to_apply.append(tag)
+            if resource_type.name:
+                tag, _ = Tag.objects.get_or_create(
+                    organization=organization, namespace='type',
+                    key='device_type', value=resource_type.name,
+                )
+                tags_to_apply.append(tag)
 
-    category_name = None
-    if getattr(resource_type, "category_id", None):
-        category_name = getattr(resource_type.category, "name", None)
-    if category_name:
-        tag, _ = Tag.objects.get_or_create(
-            organization=organization, namespace="type",
-            key="infrastructure_bucket", value=category_name,
-        )
-        tags_to_apply.append(tag)
-
-    if resource_type.name:
-        tag, _ = Tag.objects.get_or_create(
-            organization=organization, namespace="type",
-            key="device_type", value=resource_type.name,
-        )
-        tags_to_apply.append(tag)
-
-    if tags_to_apply:
-        resource.tags.add(*tags_to_apply)
+        if tags_to_apply:
+            resource.tags.add(*tags_to_apply)
+            logger.debug('_apply_taxonomy_tags: applied %d tags to %s', len(tags_to_apply), resource.name)
+        else:
+            logger.warning('_apply_taxonomy_tags: 0 tags for %s (infra=%s rt=%s)',
+                           resource.name, infrastructure, resource_type)
+    except Exception:
+        logger.exception('_apply_taxonomy_tags: error for resource %s', getattr(resource, 'name', resource))

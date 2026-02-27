@@ -1,8 +1,13 @@
 from rest_framework_nested import routers as nested_routers
+
 """Router configuration for inventory v1 API."""
 from rest_framework.routers import DefaultRouter
 
 from apps.inventory.v1.viewsets import (
+    AutomationRecordViewSet,
+    HostMappingViewSet,
+    MetricsImportViewSet,
+    PendingMatchViewSet,
     ProviderPluginViewSet,
     CollectionRunViewSet,
     ProviderViewSet,
@@ -17,6 +22,7 @@ from apps.inventory.v1.viewsets import (
     VendorTypeMappingViewSet,
     PropertyDefinitionViewSet,
     CollectionScheduleViewSet,
+    WatchlistViewSet,
 )
 
 router = DefaultRouter()
@@ -42,6 +48,17 @@ router.register(r'resource-sightings', ResourceSightingViewSet, basename='resour
 
 # Provider plugin registry
 router.register(r'provider-plugins', ProviderPluginViewSet, basename='providerplugin')
+
+# Watchlists
+router.register(r'watchlists', WatchlistViewSet, basename='watchlist')
+
+# Automation records (read-only)
+router.register(r'automation-records', AutomationRecordViewSet, basename='automationrecord')
+
+# Metrics imports
+router.register(r'metrics-imports', MetricsImportViewSet, basename='metricsimport')
+router.register(r'pending-matches', PendingMatchViewSet, basename='pendingmatch')
+router.register(r'host-mappings', HostMappingViewSet, basename='hostmapping')
 
 # Nested schedules under providers
 providers_router = nested_routers.NestedDefaultRouter(router, r'providers', lookup='provider')
